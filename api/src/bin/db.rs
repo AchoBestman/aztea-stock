@@ -316,14 +316,13 @@ async fn run_seeds(pool: &AnyPool) -> Result<(), anyhow::Error> {
 
     let user_id = Uuid::new_v4().to_string();
     let user_row = sqlx::query(
-        "INSERT INTO users (id, tenant_id, name, email, password_hash, role) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id"
+        "INSERT INTO users (id, tenant_id, name, email, password_hash) VALUES ($1, $2, $3, $4, $5) RETURNING id"
     )
     .bind(&user_id)
     .bind(&tenant_id)
     .bind("Super Administrateur")
     .bind(&sa_email)
     .bind(&password_hash)
-    .bind("super_admin")
     .fetch_one(pool)
     .await?;
     let actual_user_id: String = user_row.try_get(0)?;
