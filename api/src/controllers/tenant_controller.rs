@@ -20,7 +20,7 @@ pub struct UpdateTenantQuery {
 pub struct ListTenantsQuery {
     pub business_type: Option<String>,
     pub search: Option<String>,
-    pub is_active: Option<bool>,
+    pub is_active: Option<String>,
     pub created_after: Option<String>,
     pub created_before: Option<String>,
 }

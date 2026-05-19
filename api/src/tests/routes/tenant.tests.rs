@@ -602,4 +602,46 @@ async fn test_list_tenants_advanced_filters() {
     // only tenant-1 (10:00) matches
     assert_eq!(created_before.len(), 1);
     assert_eq!(created_before[0]["id"], "tenant-1");
+
+    // 9. Flexible Boolean parsing tests
+    // '0' should match 'false' (tenant-2)
+    let inactive_digit = get_filtered("?is_active=0").await;
+    assert_eq!(inactive_digit.len(), 1);
+    assert_eq!(inactive_digit[0]["id"], "tenant-2");
+
+    // '1' should match 'true' (tenant-1 and system-tenant)
+    let active_digit = get_filtered("?is_active=1").await;
+    assert_eq!(active_digit.len(), 2);
+
+    // 10. Date-only ISO parsing (YYYY-MM-DD)
+    let created_after_iso = get_filtered("?created_after=2026-05-19").await;
+    assert_eq!(created_after_iso.len(), 3); // all three created on 2026-05-19
+
+    // 11. Error handling: invalid is_active format should throw 400 Bad Request
+    let res_err = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/admin/tenants?is_active=xyz")
+                .header("Authorization", format!("Bearer {}", sys_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_err.status(), StatusCode::BAD_REQUEST);
+
+    // 12. Error handling: invalid date format should throw 400 Bad Request
+    let res_date_err = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/admin/tenants?created_after=invalid-date")
+                .header("Authorization", format!("Bearer {}", sys_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_date_err.status(), StatusCode::BAD_REQUEST);
 }

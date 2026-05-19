@@ -43,20 +43,24 @@ impl TenantService {
         db: &DatabaseConnection,
         business_type: Option<String>,
         search: Option<String>,
-        is_active: Option<bool>,
+        is_active: Option<String>,
         created_after: Option<String>,
         created_before: Option<String>,
     ) -> Result<Vec<TenantResponse>, ApiError> {
+        let is_active_parsed = if let Some(ref status_str) = is_active {
+            Some(Self::parse_bool_param(status_str)?)
+        } else {
+            None
+        };
+
         let after_parsed = if let Some(ref a) = created_after {
-            Some(chrono::DateTime::parse_from_rfc3339(a)
-                .map_err(|e| ApiError::BadRequest(format!("Format de date created_after invalide (doit être RFC3339) : {}", e)))?)
+            Some(Self::parse_date_param(a, "created_after")?)
         } else {
             None
         };
 
         let before_parsed = if let Some(ref b) = created_before {
-            Some(chrono::DateTime::parse_from_rfc3339(b)
-                .map_err(|e| ApiError::BadRequest(format!("Format de date created_before invalide (doit être RFC3339) : {}", e)))?)
+            Some(Self::parse_date_param(b, "created_before")?)
         } else {
             None
         };
@@ -65,7 +69,7 @@ impl TenantService {
             db,
             business_type.as_deref(),
             search.as_deref(),
-            is_active,
+            is_active_parsed,
             after_parsed,
             before_parsed,
         ).await?;
@@ -248,5 +252,37 @@ impl TenantService {
         TenantRepository::find_by_id(db, id)
             .await?
             .ok_or_else(|| ApiError::NotFound(err_msg.to_string()))
+    }
+
+    fn parse_bool_param(s: &str) -> Result<bool, ApiError> {
+        match s.trim().to_lowercase().as_str() {
+            "true" | "1" => Ok(true),
+            "false" | "0" => Ok(false),
+            _ => Err(ApiError::BadRequest(format!(
+                "Valeur de statut invalide '{}'. Attendu : true, false, 1 ou 0.",
+                s
+            ))),
+        }
+    }
+
+    fn parse_date_param(s: &str, field_name: &str) -> Result<chrono::DateTime<chrono::FixedOffset>, ApiError> {
+        // Try RFC3339 first
+        if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
+            return Ok(dt);
+        }
+        
+        // Try ISO date YYYY-MM-DD
+        if let Ok(naive_date) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+            if let Some(naive_datetime) = naive_date.and_hms_opt(0, 0, 0) {
+                let offset = chrono::FixedOffset::east_opt(0).unwrap();
+                let dt = chrono::DateTime::<chrono::FixedOffset>::from_naive_utc_and_offset(naive_datetime, offset);
+                return Ok(dt);
+            }
+        }
+        
+        Err(ApiError::BadRequest(format!(
+            "Format de date pour '{}' invalide. Attendu : RFC3339 (ex: 2026-05-19T10:00:00Z) ou ISO date (ex: 2026-05-19).",
+            field_name
+        )))
     }
 }
