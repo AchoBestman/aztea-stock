@@ -51,9 +51,7 @@ impl TenantService {
         db: &DatabaseConnection,
         tenant_id: &str,
     ) -> Result<TenantResponse, ApiError> {
-        let tenant = TenantRepository::find_by_id(db, tenant_id)
-            .await?
-            .ok_or_else(|| ApiError::NotFound("Tenant introuvable".to_string()))?;
+        let tenant = Self::load_tenant(db, tenant_id, "Tenant introuvable").await?;
 
         Ok(Self::map_to_response(tenant))
     }
@@ -66,17 +64,13 @@ impl TenantService {
         caller_has_credentials_permission: bool,
     ) -> Result<TenantResponse, ApiError> {
         // Load caller tenant
-        let caller_tenant = TenantRepository::find_by_id(db, caller_tenant_id)
-            .await?
-            .ok_or_else(|| ApiError::NotFound("Tenant de l'utilisateur introuvable".to_string()))?;
+        let caller_tenant = Self::load_tenant(db, caller_tenant_id, "Tenant de l'utilisateur introuvable").await?;
 
         // 1. Guard: Only system tenant users can update another tenant
         crate::utils::auth::require_tenant_access(db, caller_tenant_id, target_tenant_id).await?;
 
         // Load target tenant
-        let mut tenant = TenantRepository::find_by_id(db, target_tenant_id)
-            .await?
-            .ok_or_else(|| ApiError::NotFound("Tenant introuvable".to_string()))?;
+        let mut tenant = Self::load_tenant(db, target_tenant_id, "Tenant introuvable").await?;
 
         // 2. Guard: Identify which fields the caller wants to modify
         let system_only_fields_modified = payload.business_type.is_some()
@@ -168,9 +162,7 @@ impl TenantService {
         caller_tenant_id: &str,
         target_tenant_id: &str,
     ) -> Result<TenantResponse, ApiError> {
-        let caller_tenant = TenantRepository::find_by_id(db, caller_tenant_id)
-            .await?
-            .ok_or_else(|| ApiError::NotFound("Tenant de l'utilisateur introuvable".to_string()))?;
+        let caller_tenant = Self::load_tenant(db, caller_tenant_id, "Tenant de l'utilisateur introuvable").await?;
 
         if !caller_tenant.is_system {
             return Err(ApiError::Unauthorized(
@@ -178,9 +170,7 @@ impl TenantService {
             ));
         }
 
-        let mut tenant = TenantRepository::find_by_id(db, target_tenant_id)
-            .await?
-            .ok_or_else(|| ApiError::NotFound("Tenant introuvable".to_string()))?;
+        let mut tenant = Self::load_tenant(db, target_tenant_id, "Tenant introuvable").await?;
 
         tenant.is_active = Some(false);
         tenant.updated_at = chrono::Utc::now().fixed_offset();
@@ -194,9 +184,7 @@ impl TenantService {
         tenant_id: &str,
         enabled: bool,
     ) -> Result<TenantResponse, ApiError> {
-        let mut tenant = TenantRepository::find_by_id(db, tenant_id)
-            .await?
-            .ok_or_else(|| ApiError::NotFound("Tenant introuvable".to_string()))?;
+        let mut tenant = Self::load_tenant(db, tenant_id, "Tenant introuvable").await?;
 
         tenant.two_factor_enabled = enabled;
         tenant.updated_at = chrono::Utc::now().fixed_offset();
@@ -224,5 +212,15 @@ impl TenantService {
             created_at: m.created_at.to_rfc3339(),
             updated_at: m.updated_at.to_rfc3339(),
         }
+    }
+
+    async fn load_tenant(
+        db: &DatabaseConnection,
+        id: &str,
+        err_msg: &str,
+    ) -> Result<crate::models::tenant::Model, ApiError> {
+        TenantRepository::find_by_id(db, id)
+            .await?
+            .ok_or_else(|| ApiError::NotFound(err_msg.to_string()))
     }
 }
