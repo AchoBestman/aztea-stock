@@ -66,3 +66,26 @@ pub async fn require_permission(
         Err(e) => Err(ApiError::Internal(e.to_string())),
     }
 }
+
+/// Enforces multi-tenant isolation.
+/// If target_tenant_id is different from caller_tenant_id, it verifies that the caller_tenant has `is_system = true`.
+/// If not, it returns ApiError::Unauthorized.
+pub async fn require_tenant_access(
+    db: &sea_orm::DatabaseConnection,
+    caller_tenant_id: &str,
+    target_tenant_id: &str,
+) -> Result<(), ApiError> {
+    if target_tenant_id != caller_tenant_id {
+        let caller_tenant = crate::repositories::tenant_repository::TenantRepository::find_by_id(db, caller_tenant_id)
+            .await
+            .map_err(|e| ApiError::Internal(e.to_string()))?
+            .ok_or_else(|| ApiError::NotFound("Tenant de l'utilisateur introuvable".to_string()))?;
+        
+        if !caller_tenant.is_system {
+            return Err(ApiError::Unauthorized(
+                "Vous n'êtes pas autorisé à modifier ou accéder aux données d'un autre tenant.".to_string()
+            ));
+        }
+    }
+    Ok(())
+}

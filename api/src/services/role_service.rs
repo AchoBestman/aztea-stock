@@ -27,11 +27,7 @@ impl RoleService {
 
         // 2. Determine target tenant filter based on permission guard
         let target_tenant = if let Some(ref f_t_id) = filter_tenant_id {
-            if f_t_id != caller_tenant_id && !caller_tenant.is_system {
-                return Err(ApiError::Unauthorized(
-                    "Vous n'êtes pas autorisé à filtrer les données pour un autre tenant.".to_string()
-                ));
-            }
+            crate::utils::auth::require_tenant_access(db, caller_tenant_id, f_t_id).await?;
             Some(f_t_id.as_str())
         } else if caller_tenant.is_system {
             // System tenant users see all roles if no filter is specified
@@ -65,16 +61,7 @@ impl RoleService {
             .ok_or_else(|| ApiError::NotFound("Rôle introuvable".to_string()))?;
 
         // Multi-tenant guard
-        if m.tenant_id != caller_tenant_id {
-            let caller_tenant = crate::repositories::tenant_repository::TenantRepository::find_by_id(db, caller_tenant_id)
-                .await?
-                .ok_or_else(|| ApiError::NotFound("Tenant de l'utilisateur introuvable".to_string()))?;
-            if !caller_tenant.is_system {
-                return Err(ApiError::Unauthorized(
-                    "Vous n'êtes pas autorisé à accéder aux données d'un autre tenant.".to_string()
-                ));
-            }
-        }
+        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &m.tenant_id).await?;
 
         Ok(RoleResponse {
             id: m.id,
@@ -98,16 +85,7 @@ impl RoleService {
 
         // Determine final tenant id
         let final_tenant_id = if let Some(ref t_id) = payload.tenant_id {
-            if t_id != caller_tenant_id {
-                let caller_tenant = crate::repositories::tenant_repository::TenantRepository::find_by_id(db, caller_tenant_id)
-                    .await?
-                    .ok_or_else(|| ApiError::NotFound("Tenant de l'utilisateur introuvable".to_string()))?;
-                if !caller_tenant.is_system {
-                    return Err(ApiError::Unauthorized(
-                        "Vous n'êtes pas autorisé à créer des rôles pour un autre tenant.".to_string()
-                    ));
-                }
-            }
+            crate::utils::auth::require_tenant_access(db, caller_tenant_id, t_id).await?;
             t_id.clone()
         } else {
             caller_tenant_id.to_string()
@@ -148,16 +126,7 @@ impl RoleService {
             .ok_or_else(|| ApiError::NotFound("Rôle introuvable".to_string()))?;
 
         // Multi-tenant guard
-        if role.tenant_id != caller_tenant_id {
-            let caller_tenant = crate::repositories::tenant_repository::TenantRepository::find_by_id(db, caller_tenant_id)
-                .await?
-                .ok_or_else(|| ApiError::NotFound("Tenant de l'utilisateur introuvable".to_string()))?;
-            if !caller_tenant.is_system {
-                return Err(ApiError::Unauthorized(
-                    "Vous n'êtes pas autorisé à modifier les données d'un autre tenant.".to_string()
-                ));
-            }
-        }
+        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &role.tenant_id).await?;
 
         // Business validation: uniqueness of name within its tenant
         if RoleRepository::exists_by_name_exclude(db, &payload.name, &role.tenant_id, id).await? {
@@ -188,16 +157,7 @@ impl RoleService {
             .ok_or_else(|| ApiError::NotFound("Rôle introuvable".to_string()))?;
 
         // Multi-tenant guard
-        if role.tenant_id != caller_tenant_id {
-            let caller_tenant = crate::repositories::tenant_repository::TenantRepository::find_by_id(db, caller_tenant_id)
-                .await?
-                .ok_or_else(|| ApiError::NotFound("Tenant de l'utilisateur introuvable".to_string()))?;
-            if !caller_tenant.is_system {
-                return Err(ApiError::Unauthorized(
-                    "Vous n'êtes pas autorisé à supprimer les données d'un autre tenant.".to_string()
-                ));
-            }
-        }
+        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &role.tenant_id).await?;
 
         let user_role_count = user_role::Entity::find()
             .filter(user_role::Column::RoleId.eq(id))

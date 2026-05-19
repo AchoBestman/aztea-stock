@@ -71,11 +71,7 @@ impl TenantService {
             .ok_or_else(|| ApiError::NotFound("Tenant de l'utilisateur introuvable".to_string()))?;
 
         // 1. Guard: Only system tenant users can update another tenant
-        if target_tenant_id != caller_tenant_id && !caller_tenant.is_system {
-            return Err(ApiError::Unauthorized(
-                "Vous n'êtes pas autorisé à modifier les données d'un autre tenant.".to_string()
-            ));
-        }
+        crate::utils::auth::require_tenant_access(db, caller_tenant_id, target_tenant_id).await?;
 
         // Load target tenant
         let mut tenant = TenantRepository::find_by_id(db, target_tenant_id)
