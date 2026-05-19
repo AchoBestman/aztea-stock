@@ -36,12 +36,17 @@ CREATE TABLE roles (
 CREATE TABLE users (
     id VARCHAR(36) PRIMARY KEY,
     tenant_id VARCHAR(36) NOT NULL,
-    email VARCHAR(255) UNIQUE NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
-    name VARCHAR(100) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+    role VARCHAR(50) NOT NULL CHECK (role IN ('owner','manager','cashier','viewer','super_admin')),
+    pin_hash VARCHAR(255),
+    is_active BOOLEAN DEFAULT true,
+    last_login TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+    UNIQUE (tenant_id, email)
 );
 
 CREATE TABLE user_roles (
