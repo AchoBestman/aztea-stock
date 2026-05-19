@@ -223,7 +223,7 @@ async fn run_seeds(pool: &AnyPool) -> Result<(), anyhow::Error> {
     let tenant_address = env::var("SYSTEM_TENANT_ADDRESS").ok();
 
     sqlx::query(
-        "INSERT INTO tenants (id, name, business_type, email, phone, address) VALUES ($1, $2, $3, $4, $5, $6)"
+        "INSERT INTO tenants (id, name, business_type, email, phone, address, is_system) VALUES ($1, $2, $3, $4, $5, $6, $7)"
     )
     .bind(&tenant_id)
     .bind(&tenant_name)
@@ -231,6 +231,7 @@ async fn run_seeds(pool: &AnyPool) -> Result<(), anyhow::Error> {
     .bind(&tenant_email)
     .bind(tenant_phone)
     .bind(tenant_address)
+    .bind(true)
     .execute(pool)
     .await?;
     println!("Created system tenant: {}", tenant_name);
