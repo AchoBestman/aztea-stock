@@ -506,3 +506,100 @@ async fn test_soft_delete_and_login_prevention() {
         .unwrap();
     assert_eq!(action_response.status(), StatusCode::UNAUTHORIZED);
 }
+
+#[tokio::test]
+async fn test_list_tenants_advanced_filters() {
+    let db = setup_test_db().await;
+
+    // Seed system tenant
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO tenants (id, name, business_type, email, is_system, is_active, created_at) VALUES ('system-tenant', 'System', 'both', 'sys@sys.com', 1, 1, '2026-05-19T12:00:00+00:00')".to_string())).await.unwrap();
+    
+    // Seed tenant 1
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO tenants (id, name, business_type, email, phone, country, address, is_system, is_active, created_at) VALUES ('tenant-1', 'Super Pharmacy Store', 'pharmacy', 'pharmacy@sys.com', '123456', 'CG', 'Brazzaville street', 0, 1, '2026-05-19T10:00:00+00:00')".to_string())).await.unwrap();
+
+    // Seed tenant 2
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO tenants (id, name, business_type, email, phone, country, address, is_system, is_active, created_at) VALUES ('tenant-2', 'Alpha Supermarket', 'supermarket', 'super@sys.com', '789101', 'FR', 'Paris boulevard', 0, 0, '2026-05-19T14:00:00+00:00')".to_string())).await.unwrap();
+
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO roles (id, tenant_id, name, description) VALUES ('role-sys', 'system-tenant', 'sysadmin', 'Sys Admin')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO permissions (id, name, description, model_group) VALUES ('perm-read', 'can_read_tenant', 'Read Tenants', 'tenant')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO role_permissions (role_id, permission_id) VALUES ('role-sys', 'perm-read')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO users (id, tenant_id, name, email, password_hash, is_active) VALUES ('user-sys', 'system-tenant', 'Sys User', 'sys@example.com', 'hash', 1)".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO user_roles (user_id, role_id) VALUES ('user-sys', 'role-sys')".to_string())).await.unwrap();
+
+    let config = Config::default();
+    let state = Arc::new(AppState { db: Some(db.clone()), config: config.clone() });
+    let app = create_app(state);
+    let sys_token = create_token("user-sys", "system-tenant", "sysadmin", &config.jwt_secret);
+
+    // Helper to request list_tenants with custom query string
+    let get_filtered = |query_str: &str| {
+        let app_clone = app.clone();
+        let token = sys_token.clone();
+        let uri = format!("/api/v1/admin/tenants{}", query_str);
+        async move {
+            let res = app_clone
+                .oneshot(
+                    Request::builder()
+                        .method("GET")
+                        .uri(uri)
+                        .header("Authorization", format!("Bearer {}", token))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            
+            assert_eq!(res.status(), StatusCode::OK);
+            let bytes = res.into_body().collect().await.unwrap().to_bytes();
+            let parsed: Value = serde_json::from_slice(&bytes).unwrap();
+            parsed.as_array().unwrap().clone()
+        }
+    };
+
+    // 1. Unfiltered: should return all 3 tenants
+    let all = get_filtered("").await;
+    assert_eq!(all.len(), 3);
+
+    // 2. Filter by business_type = pharmacy
+    let pharmacies = get_filtered("?business_type=pharmacy").await;
+    assert_eq!(pharmacies.len(), 1);
+    assert_eq!(pharmacies[0]["id"], "tenant-1");
+
+    // 3. Search query: match name (Super Pharmacy Store)
+    let search_name = get_filtered("?search=Pharmacy").await;
+    assert_eq!(search_name.len(), 1);
+    assert_eq!(search_name[0]["id"], "tenant-1");
+
+    // 4. Search query: match email or name containing 'super' (matches tenant-1 and tenant-2)
+    let search_super = get_filtered("?search=super").await;
+    assert_eq!(search_super.len(), 2);
+
+    // 5. Search query: match name containing 'supermarket' (matches only tenant-2)
+    let search_sm = get_filtered("?search=supermarket").await;
+    assert_eq!(search_sm.len(), 1);
+    assert_eq!(search_sm[0]["id"], "tenant-2");
+
+    // 6. Search query: match address (Brazzaville street)
+    let search_addr = get_filtered("?search=Brazzaville").await;
+    assert_eq!(search_addr.len(), 1);
+    assert_eq!(search_addr[0]["id"], "tenant-1");
+
+    // 6. Filter by status: is_active = false
+    let inactive = get_filtered("?is_active=false").await;
+    assert_eq!(inactive.len(), 1);
+    assert_eq!(inactive[0]["id"], "tenant-2");
+
+    // 7. Filter by date interval: created_after
+    let created_after = get_filtered("?created_after=2026-05-19T11:00:00Z").await;
+    // system-tenant (12:00) and tenant-2 (14:00) match
+    assert_eq!(created_after.len(), 2);
+    let ids: Vec<&str> = created_after.iter().map(|t| t["id"].as_str().unwrap()).collect();
+    assert!(ids.contains(&"system-tenant"));
+    assert!(ids.contains(&"tenant-2"));
+
+    // 8. Filter by date interval: created_before
+    let created_before = get_filtered("?created_before=2026-05-19T11:00:00Z").await;
+    // only tenant-1 (10:00) matches
+    assert_eq!(created_before.len(), 1);
+    assert_eq!(created_before[0]["id"], "tenant-1");
+}

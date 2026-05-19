@@ -39,10 +39,46 @@ impl TenantRepository {
         active_model.insert(db).await
     }
 
-    pub async fn find_all(
+    pub async fn find_all_filtered(
         db: &DatabaseConnection,
+        business_type: Option<&str>,
+        search: Option<&str>,
+        is_active: Option<bool>,
+        created_after: Option<chrono::DateTime<chrono::FixedOffset>>,
+        created_before: Option<chrono::DateTime<chrono::FixedOffset>>,
     ) -> Result<Vec<tenant::Model>, DbErr> {
-        tenant::Entity::find().all(db).await
+        use sea_orm::{QueryFilter, ColumnTrait, Condition};
+        let mut query = tenant::Entity::find();
+
+        if let Some(bt) = business_type {
+            query = query.filter(tenant::Column::BusinessType.eq(bt));
+        }
+
+        if let Some(status) = is_active {
+            query = query.filter(tenant::Column::IsActive.eq(status));
+        }
+
+        if let Some(after) = created_after {
+            query = query.filter(tenant::Column::CreatedAt.gte(after));
+        }
+
+        if let Some(before) = created_before {
+            query = query.filter(tenant::Column::CreatedAt.lte(before));
+        }
+
+        if let Some(s) = search {
+            let search_pattern = format!("%{}%", s);
+            query = query.filter(
+                Condition::any()
+                    .add(tenant::Column::Name.like(&search_pattern))
+                    .add(tenant::Column::Email.like(&search_pattern))
+                    .add(tenant::Column::Phone.like(&search_pattern))
+                    .add(tenant::Column::Country.like(&search_pattern))
+                    .add(tenant::Column::Address.like(&search_pattern))
+            );
+        }
+
+        query.all(db).await
     }
 
     pub async fn update(

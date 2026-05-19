@@ -41,8 +41,34 @@ impl TenantService {
 
     pub async fn list_tenants(
         db: &DatabaseConnection,
+        business_type: Option<String>,
+        search: Option<String>,
+        is_active: Option<bool>,
+        created_after: Option<String>,
+        created_before: Option<String>,
     ) -> Result<Vec<TenantResponse>, ApiError> {
-        let models = TenantRepository::find_all(db).await?;
+        let after_parsed = if let Some(ref a) = created_after {
+            Some(chrono::DateTime::parse_from_rfc3339(a)
+                .map_err(|e| ApiError::BadRequest(format!("Format de date created_after invalide (doit être RFC3339) : {}", e)))?)
+        } else {
+            None
+        };
+
+        let before_parsed = if let Some(ref b) = created_before {
+            Some(chrono::DateTime::parse_from_rfc3339(b)
+                .map_err(|e| ApiError::BadRequest(format!("Format de date created_before invalide (doit être RFC3339) : {}", e)))?)
+        } else {
+            None
+        };
+
+        let models = TenantRepository::find_all_filtered(
+            db,
+            business_type.as_deref(),
+            search.as_deref(),
+            is_active,
+            after_parsed,
+            before_parsed,
+        ).await?;
         let responses = models.into_iter().map(Self::map_to_response).collect();
         Ok(responses)
     }

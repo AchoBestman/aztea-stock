@@ -16,6 +16,15 @@ pub struct UpdateTenantQuery {
     pub tenant_id: Option<String>,
 }
 
+#[derive(serde::Deserialize, utoipa::IntoParams, Clone, Debug)]
+pub struct ListTenantsQuery {
+    pub business_type: Option<String>,
+    pub search: Option<String>,
+    pub is_active: Option<bool>,
+    pub created_after: Option<String>,
+    pub created_before: Option<String>,
+}
+
 #[utoipa::path(
     post,
     path = "/api/v1/admin/tenants",
@@ -62,6 +71,9 @@ pub async fn create_tenant(
 #[utoipa::path(
     get,
     path = "/api/v1/admin/tenants",
+    params(
+        ListTenantsQuery
+    ),
     responses(
         (status = 200, description = "Liste de tous les tenants récupérée avec succès.", body = [TenantResponse]),
         (status = 401, description = "Authentification requise ou token JWT invalide."),
@@ -75,6 +87,7 @@ pub async fn create_tenant(
 pub async fn list_tenants(
     Extension(claims): Extension<Claims>,
     State(state): State<Arc<AppState>>,
+    Query(query): Query<ListTenantsQuery>,
 ) -> Result<Json<Vec<TenantResponse>>, ApiError> {
     let db = state.db.as_ref().ok_or_else(|| {
         ApiError::Internal("La base de données n'est pas disponible".to_string())
@@ -92,7 +105,14 @@ pub async fn list_tenants(
         ));
     }
 
-    let response = TenantService::list_tenants(db).await?;
+    let response = TenantService::list_tenants(
+        db,
+        query.business_type,
+        query.search,
+        query.is_active,
+        query.created_after,
+        query.created_before,
+    ).await?;
     Ok(Json(response))
 }
 
