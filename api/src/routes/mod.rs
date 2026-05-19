@@ -22,6 +22,7 @@ pub mod sync;
         auth::update_profile,
         auth::forgot_password,
         auth::reset_password,
+        auth::verify_otp,
         products::list_products,
         products::get_product,
         crate::controllers::role_controller::list_roles,
@@ -75,6 +76,7 @@ pub mod sync;
             crate::dtos::user_dto::UpdateProfilePayload,
             auth::ForgotPasswordPayload,
             auth::ResetPasswordPayload,
+            auth::VerifyOtpPayload,
         )
     ),
     modifiers(&SecurityAddon),

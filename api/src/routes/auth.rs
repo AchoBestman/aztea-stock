@@ -1,16 +1,20 @@
-use axum::{routing::{post, get}, Json, Router, Extension, extract::State};
+use axum::{
+    Extension, Json, Router,
+    extract::State,
+    routing::{get, post},
+};
+use jsonwebtoken::{EncodingKey, Header, encode};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
-use sea_orm::{EntityTrait, QueryFilter, ColumnTrait};
-use jsonwebtoken::{encode, Header, EncodingKey};
 use std::sync::Arc;
+use utoipa::ToSchema;
 
-use crate::errors::ApiError;
 use crate::AppState;
+use crate::dtos::user_dto::{UpdateProfilePayload, UserProfileResponse};
+use crate::errors::ApiError;
 use crate::middleware::auth::Claims;
+use crate::models::{permission, role, role_permission, tenant, user, user_role};
 use crate::services::user_service::UserService;
-use crate::dtos::user_dto::{UserProfileResponse, UpdateProfilePayload};
-use crate::models::{user, tenant, role, permission, user_role, role_permission};
 
 #[derive(Deserialize, ToSchema)]
 pub struct LoginPayload {
@@ -44,60 +48,28 @@ pub struct UserProfile {
     pub permissions: Vec<String>,
 }
 
-#[derive(Serialize, ToSchema)]
-pub struct LoginResponse {
-    pub access_token: String,
-    pub refresh_token: String,
-    pub expires_in: u64,
-    pub user: UserProfile,
+#[derive(Deserialize, ToSchema)]
+pub struct VerifyOtpPayload {
+    pub email: String,
+    pub otp_code: String,
 }
 
-#[utoipa::path(
-    post,
-    path = "/api/v1/auth/login",
-    request_body(
-        content = LoginPayload,
-        description = "Identifiants de connexion obligatoires.",
-        content_type = "application/json"
-    ),
-    responses(
-        (status = 200, description = "Connexion réussie. Retourne le jeton d'accès JWT et les informations de profil.", body = LoginResponse),
-        (status = 400, description = "Format de requête invalide ou champs obligatoires manquants."),
-        (status = 401, description = "Authentification échouée (identifiants incorrects).")
-    ),
-    tag = "Auth"
-)]
-pub async fn login(
-    axum::extract::State(state): axum::extract::State<std::sync::Arc<crate::AppState>>,
-    Json(payload): Json<LoginPayload>,
-) -> Result<Json<LoginResponse>, ApiError> {
-    let db = state.db.as_ref().ok_or_else(|| {
-        ApiError::Database(sea_orm::DbErr::Custom("Connexion base de données indisponible".to_string()))
-    })?;
+#[derive(Serialize, ToSchema)]
+pub struct LoginResponse {
+    pub requires_two_factor: bool,
+    pub message: Option<String>,
+    pub access_token: Option<String>,
+    pub refresh_token: Option<String>,
+    pub expires_in: Option<u64>,
+    pub user: Option<UserProfile>,
+}
 
-    // 1. Retrieve the user by email
-    let user_model = user::Entity::find()
-        .filter(user::Column::Email.eq(&payload.email))
-        .one(db)
-        .await?
-        .ok_or_else(|| ApiError::Unauthorized("Email ou mot de passe incorrect".to_string()))?;
-
-    if user_model.is_active == Some(false) {
-        return Err(ApiError::Unauthorized("Votre compte est inactif".to_string()));
-    }
-
-    // 2. Verify password with bcrypt
-    bcrypt::verify(&payload.password, &user_model.password_hash)
-        .map_err(|_| ApiError::Unauthorized("Email ou mot de passe incorrect".to_string()))
-        .and_then(|valid| {
-            if valid {
-                Ok(())
-            } else {
-                Err(ApiError::Unauthorized("Email ou mot de passe incorrect".to_string()))
-            }
-        })?;
-
-    // 3. Retrieve user's roles
+async fn generate_login_response(
+    db: &sea_orm::DatabaseConnection,
+    state: &AppState,
+    user_model: &user::Model,
+    tenant_model: &tenant::Model,
+) -> Result<LoginResponse, ApiError> {
     let user_roles = user_role::Entity::find()
         .filter(user_role::Column::UserId.eq(&user_model.id))
         .all(db)
@@ -128,22 +100,11 @@ pub async fn login(
         }
     }
 
-    // 4. Retrieve Tenant
-    let tenant_model = tenant::Entity::find_by_id(&user_model.tenant_id)
-        .one(db)
-        .await?
-        .ok_or_else(|| ApiError::Unauthorized("Tenant introuvable".to_string()))?;
-
-    if tenant_model.is_active == Some(false) {
-        return Err(ApiError::Unauthorized("Le compte de votre entreprise est inactif".to_string()));
-    }
-
-    // 5. Generate JWT tokens
     let role_names: Vec<String> = roles.iter().map(|r| r.name.clone()).collect();
     let role_str = role_names.join(",");
     let perm_names: Vec<String> = permissions.iter().map(|p| p.name.clone()).collect();
 
-    let expires_in = 3600; // 1 hour
+    let expires_in = 3600;
     let expiration = chrono::Utc::now()
         .checked_add_signed(chrono::Duration::seconds(expires_in))
         .expect("valid timestamp")
@@ -160,25 +121,200 @@ pub async fn login(
         &Header::default(),
         &claims,
         &EncodingKey::from_secret(state.config.jwt_secret.as_bytes()),
-    ).map_err(|e| ApiError::Internal(format!("Failed to sign JWT: {}", e)))?;
+    )
+    .map_err(|e| ApiError::Internal(format!("Failed to sign JWT: {}", e)))?;
 
     let refresh_token = uuid::Uuid::new_v4().to_string();
 
-    Ok(Json(LoginResponse {
-        access_token,
-        refresh_token,
-        expires_in: expires_in as u64,
-        user: UserProfile {
-            id: user_model.id,
-            name: user_model.name,
-            email: user_model.email,
+    Ok(LoginResponse {
+        requires_two_factor: false,
+        message: None,
+        access_token: Some(access_token),
+        refresh_token: Some(refresh_token),
+        expires_in: Some(expires_in as u64),
+        user: Some(UserProfile {
+            id: user_model.id.clone(),
+            name: user_model.name.clone(),
+            email: user_model.email.clone(),
             role: role_str,
-            tenant_id: tenant_model.id,
-            tenant_name: tenant_model.name,
+            tenant_id: tenant_model.id.clone(),
+            tenant_name: tenant_model.name.clone(),
             roles: role_names,
             permissions: perm_names,
-        },
-    }))
+        }),
+    })
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/login",
+    request_body(
+        content = LoginPayload,
+        description = "Identifiants de connexion obligatoires.",
+        content_type = "application/json"
+    ),
+    responses(
+        (status = 200, description = "Connexion réussie. Retourne le jeton d'accès JWT et les informations de profil.", body = LoginResponse),
+        (status = 400, description = "Format de requête invalide ou champs obligatoires manquants."),
+        (status = 401, description = "Authentification échouée (identifiants incorrects).")
+    ),
+    tag = "Auth"
+)]
+pub async fn login(
+    axum::extract::State(state): axum::extract::State<std::sync::Arc<crate::AppState>>,
+    Json(payload): Json<LoginPayload>,
+) -> Result<Json<LoginResponse>, ApiError> {
+    let db = state.db.as_ref().ok_or_else(|| {
+        ApiError::Database(sea_orm::DbErr::Custom(
+            "Connexion base de données indisponible".to_string(),
+        ))
+    })?;
+
+    // 1. Retrieve the user by email
+    let user_model = user::Entity::find()
+        .filter(user::Column::Email.eq(&payload.email))
+        .one(db)
+        .await?
+        .ok_or_else(|| ApiError::Unauthorized("Email ou mot de passe incorrect".to_string()))?;
+
+    if user_model.is_active == Some(false) {
+        return Err(ApiError::Unauthorized(
+            "Votre compte est inactif".to_string(),
+        ));
+    }
+
+    // 2. Verify password with bcrypt
+    bcrypt::verify(&payload.password, &user_model.password_hash)
+        .map_err(|_| ApiError::Unauthorized("Email ou mot de passe incorrect".to_string()))
+        .and_then(|valid| {
+            if valid {
+                Ok(())
+            } else {
+                Err(ApiError::Unauthorized(
+                    "Email ou mot de passe incorrect".to_string(),
+                ))
+            }
+        })?;
+
+    // 3. Retrieve Tenant
+    let tenant_model = tenant::Entity::find_by_id(&user_model.tenant_id)
+        .one(db)
+        .await?
+        .ok_or_else(|| ApiError::Unauthorized("Tenant introuvable".to_string()))?;
+
+    if tenant_model.is_active == Some(false) {
+        return Err(ApiError::Unauthorized(
+            "Le compte de votre entreprise est inactif".to_string(),
+        ));
+    }
+
+    // 4. Check 2FA requirement
+    let user_requires_2fa = user_model.two_factor_enabled;
+    let tenant_requires_2fa = tenant_model.two_factor_enabled;
+
+    if user_requires_2fa || tenant_requires_2fa {
+        use sea_orm::ActiveModelTrait;
+        use rand::Rng;
+
+        // Generate 6-digit OTP
+        let code: String = (0..6)
+            .map(|_| rand::thread_rng().sample(rand::distributions::Alphanumeric) as char)
+            .collect::<String>()
+            .to_uppercase();
+
+        let mut user_active: user::ActiveModel = user_model.clone().into();
+        user_active.two_factor_code = sea_orm::Set(Some(code.clone()));
+        user_active.two_factor_expires_at = sea_orm::Set(Some(
+            (chrono::Utc::now() + chrono::Duration::minutes(5)).fixed_offset(),
+        ));
+        user_active.update(db).await?;
+
+        // Send email
+        crate::services::email_service::send_otp_email(&state, &tenant_model.id, &payload.email, &code)
+            .await
+            .map_err(|e| ApiError::Internal(format!("Erreur d'envoi d'email: {}", e)))?;
+
+        return Ok(Json(LoginResponse {
+            requires_two_factor: true,
+            message: Some("Un code de vérification a été envoyé à votre adresse email.".to_string()),
+            access_token: None,
+            refresh_token: None,
+            expires_in: None,
+            user: None,
+        }));
+    }
+
+    // 5. Generate JWT tokens
+    let response = generate_login_response(db, &state, &user_model, &tenant_model).await?;
+    Ok(Json(response))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/verify-otp",
+    request_body(
+        content = VerifyOtpPayload,
+        description = "Email et code OTP de connexion",
+        content_type = "application/json"
+    ),
+    responses(
+        (status = 200, description = "Connexion réussie. Retourne le jeton d'accès.", body = LoginResponse),
+        (status = 400, description = "Requête invalide ou code OTP expiré."),
+        (status = 401, description = "Authentification échouée.")
+    ),
+    tag = "Auth"
+)]
+pub async fn verify_otp(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<VerifyOtpPayload>,
+) -> Result<Json<LoginResponse>, ApiError> {
+    let db = state.db.as_ref().ok_or_else(|| {
+        ApiError::Database(sea_orm::DbErr::Custom("Connexion base de données indisponible".to_string()))
+    })?;
+
+    // Find user
+    let user_model = user::Entity::find()
+        .filter(user::Column::Email.eq(&payload.email))
+        .one(db)
+        .await?
+        .ok_or_else(|| ApiError::Unauthorized("Email ou code incorrect".to_string()))?;
+
+    // Verify OTP
+    if let Some(ref stored_code) = user_model.two_factor_code {
+        if stored_code != &payload.otp_code {
+            return Err(ApiError::Unauthorized("Code de vérification incorrect".to_string()));
+        }
+    } else {
+        return Err(ApiError::BadRequest("Aucun code de vérification n'a été demandé".to_string()));
+    }
+
+    // Verify Expiration
+    if let Some(expires_at) = user_model.two_factor_expires_at {
+        if chrono::Utc::now().fixed_offset() > expires_at {
+            return Err(ApiError::BadRequest("Le code de vérification a expiré".to_string()));
+        }
+    } else {
+        return Err(ApiError::BadRequest("Le code de vérification a expiré".to_string()));
+    }
+
+    let tenant_model = tenant::Entity::find_by_id(&user_model.tenant_id)
+        .one(db)
+        .await?
+        .ok_or_else(|| ApiError::Unauthorized("Tenant introuvable".to_string()))?;
+
+    if tenant_model.is_active == Some(false) {
+        return Err(ApiError::Unauthorized("Le compte de votre entreprise est inactif".to_string()));
+    }
+
+    // Clear OTP
+    use sea_orm::ActiveModelTrait;
+    let mut user_active: user::ActiveModel = user_model.clone().into();
+    user_active.two_factor_code = sea_orm::Set(None);
+    user_active.two_factor_expires_at = sea_orm::Set(None);
+    user_active.update(db).await?;
+
+    let response = generate_login_response(db, &state, &user_model, &tenant_model).await?;
+    Ok(Json(response))
 }
 
 #[utoipa::path(
@@ -197,9 +333,10 @@ pub async fn get_profile(
     Extension(claims): Extension<Claims>,
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<UserProfileResponse>, ApiError> {
-    let db = state.db.as_ref().ok_or_else(|| {
-        ApiError::Internal("La base de données n'est pas disponible".to_string())
-    })?;
+    let db = state
+        .db
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("La base de données n'est pas disponible".to_string()))?;
 
     let profile = UserService::get_profile(db, &claims.sub).await?;
     Ok(Json(profile))
@@ -229,9 +366,10 @@ pub async fn update_profile(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<UpdateProfilePayload>,
 ) -> Result<Json<UserProfileResponse>, ApiError> {
-    let db = state.db.as_ref().ok_or_else(|| {
-        ApiError::Internal("La base de données n'est pas disponible".to_string())
-    })?;
+    let db = state
+        .db
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("La base de données n'est pas disponible".to_string()))?;
 
     let profile = UserService::update_profile(db, &claims.sub, &claims.tenant_id, payload).await?;
     Ok(Json(profile))
@@ -275,17 +413,27 @@ pub async fn forgot_password(
         (status = 400, description = "Requête invalide ou code OTP expiré."),
         (status = 404, description = "Utilisateur introuvable.")
     ),
-    tag = "Auth"
+    tag = "Auth",
+    security(
+        ("bearerAuth" = [])
+    )
 )]
 pub async fn reset_password(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<ResetPasswordPayload>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let db = state.db.as_ref().ok_or_else(|| {
-        ApiError::Internal("La base de données n'est pas disponible".to_string())
-    })?;
+    let db = state
+        .db
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("La base de données n'est pas disponible".to_string()))?;
 
-    UserService::public_reset_password(db, &payload.email, &payload.otp_code, &payload.new_password).await?;
+    UserService::public_reset_password(
+        db,
+        &payload.email,
+        &payload.otp_code,
+        &payload.new_password,
+    )
+    .await?;
     Ok(Json(serde_json::json!({
         "success": true,
         "message": "Mot de passe réinitialisé avec succès."
@@ -298,4 +446,5 @@ pub fn router() -> Router<std::sync::Arc<crate::AppState>> {
         .route("/profile", get(get_profile).put(update_profile))
         .route("/forgot-password", post(forgot_password))
         .route("/reset-password", post(reset_password))
+        .route("/verify-otp", post(verify_otp))
 }
