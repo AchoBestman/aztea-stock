@@ -52,6 +52,7 @@ impl RoleService {
                 tenant_id: m.tenant_id,
                 name: m.name,
                 description: m.description,
+                permissions: None,
             });
         }
         Ok(dtos)
@@ -79,11 +80,15 @@ impl RoleService {
             }
         }
 
+        // Fetch associated permissions for this role
+        let perms = Self::list_role_permissions(db, caller_user_id, id, caller_tenant_id).await?;
+
         Ok(RoleResponse {
             id: m.id,
             tenant_id: m.tenant_id,
             name: m.name,
             description: m.description,
+            permissions: Some(perms),
         })
     }
 
@@ -125,6 +130,7 @@ impl RoleService {
             tenant_id: m.tenant_id,
             name: m.name,
             description: m.description,
+            permissions: None,
         })
     }
 
@@ -169,6 +175,7 @@ impl RoleService {
             tenant_id: m.tenant_id,
             name: m.name,
             description: m.description,
+            permissions: None,
         })
     }
 

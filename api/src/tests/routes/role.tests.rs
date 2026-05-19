@@ -625,7 +625,7 @@ async fn test_list_role_permissions() {
     let token_t2 = create_token("user-2", "tenant-2", "t2-role", &config.jwt_secret);
 
     // user-2 tries to access role-target (from tenant-1) -> should be forbidden (Unauthorized/401)
-    let res_unauth = app
+    let res_unauth = app.clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -637,6 +637,25 @@ async fn test_list_role_permissions() {
         .await
         .unwrap();
     assert_eq!(res_unauth.status(), StatusCode::UNAUTHORIZED);
+
+    // 6. Success: GET detail of 'role-target' must also return its permissions in the response body!
+    let res_detail = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/admin/roles/role-target")
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_detail.status(), StatusCode::OK);
+    let bytes_detail = res_detail.into_body().collect().await.unwrap().to_bytes();
+    let body_detail: Value = serde_json::from_slice(&bytes_detail).unwrap();
+    let perms_detail = body_detail["permissions"].as_array().unwrap();
+    assert_eq!(perms_detail.len(), 1);
+    assert_eq!(perms_detail[0]["id"], "perm-sale-1");
 }
 
 // Helper to execute raw queries in tests
