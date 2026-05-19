@@ -396,7 +396,13 @@ pub async fn send_password_reset_email(
     );
     let body = format!(
         r#"<h2 style="margin:0 0 8px;font-size:22px;color:#0f172a;">Initialisation de votre compte</h2>
-<p style="margin:0 0 32px;font-size:14px;color:#64748b;">Vous avez été invité ou avez demandé à réinitialiser votre mot de passe pour {name}. Cliquez ci-dessous pour continuer.</p>
+<p style="margin:0 0 16px;font-size:14px;color:#64748b;">Vous avez été invité ou avez demandé à réinitialiser votre mot de passe pour {name}.</p>
+<div style="background:#f1f5f9;border-radius:10px;padding:32px;text-align:center;margin-bottom:28px;">
+  <p style="margin:0 0 12px;font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;">Votre code OTP</p>
+  <div style="font-size:40px;font-weight:800;letter-spacing:12px;color:#140066;font-family:monospace;">{code}</div>
+  <p style="margin:16px 0 0;font-size:12px;color:#94a3b8;">⏱ Expire dans <strong>1 heure</strong></p>
+</div>
+<p style="margin:0 0 24px;font-size:14px;color:#64748b;text-align:center;">Ou cliquez sur le bouton ci-dessous pour continuer depuis un navigateur :</p>
 <div style="text-align:center;margin-bottom:32px;">
   <a href="{reset_link}" style="background:#140066;color:#ffffff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">
     Définir mon mot de passe
