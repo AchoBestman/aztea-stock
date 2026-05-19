@@ -9,6 +9,10 @@ pub struct PaginationParams {
     pub start_date: Option<String>,
     pub end_date: Option<String>,
     pub tenant_id: Option<String>,
+    /// Column name to sort by (e.g. "created_at", "name", "status")
+    pub order_by: Option<String>,
+    /// "asc" or "desc" (default: "desc")
+    pub order_type: Option<String>,
 }
 
 impl Default for PaginationParams {
@@ -20,6 +24,8 @@ impl Default for PaginationParams {
             start_date: None,
             end_date: None,
             tenant_id: None,
+            order_by: None,
+            order_type: None,
         }
     }
 }

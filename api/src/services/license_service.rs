@@ -115,10 +115,22 @@ impl LicenseService {
 
         let page = params.page.unwrap_or(1);
         let per_page = params.per_page.unwrap_or(20);
+        let order_desc = params.order_type.as_deref().unwrap_or("desc") != "asc";
 
         use sea_orm::{PaginatorTrait, QueryOrder};
-        
-        query = query.order_by_desc(license::Column::CreatedAt);
+
+        let order_col = match params.order_by.as_deref().unwrap_or("created_at") {
+            "device_name" => license::Column::DeviceName,
+            "activated_at" => license::Column::ActivatedAt,
+            "last_verified_at" => license::Column::LastVerifiedAt,
+            _ => license::Column::CreatedAt,
+        };
+
+        query = if order_desc {
+            query.order_by_desc(order_col)
+        } else {
+            query.order_by_asc(order_col)
+        };
 
         let paginator = query.paginate(db, per_page);
         let total = paginator.num_items().await?;
@@ -254,7 +266,7 @@ impl LicenseService {
             active_sub.status = sea_orm::Set("suspended".to_string());
             let _ = sea_orm::ActiveModelTrait::update(active_sub, db).await;
 
-            // Also mark all licenses for this subscription inactive
+            // Mark all licenses for this subscription inactive
             let lics = license::Entity::find()
                 .filter(license::Column::SubscriptionId.eq(&sub.id))
                 .all(db)
@@ -265,6 +277,30 @@ impl LicenseService {
                 let mut active_lic: license::ActiveModel = lic.into();
                 active_lic.is_active = sea_orm::Set(Some(false));
                 let _ = sea_orm::ActiveModelTrait::update(active_lic, db).await;
+            }
+
+            // Deactivate the tenant — it can no longer operate in the system
+            let tenant_opt = crate::models::tenant::Entity::find_by_id(&sub.tenant_id)
+                .one(db)
+                .await
+                .unwrap_or(None);
+
+            if let Some(t) = tenant_opt {
+                // Only deactivate if there is no other active subscription for this tenant
+                let other_active = subscription::Entity::find()
+                    .filter(subscription::Column::TenantId.eq(&sub.tenant_id))
+                    .filter(subscription::Column::Status.eq("active"))
+                    .filter(subscription::Column::ExpiresAt.gte(chrono::Utc::now().fixed_offset()))
+                    .one(db)
+                    .await
+                    .unwrap_or(None);
+
+                if other_active.is_none() {
+                    tracing::info!("[LicenseTask] Deactivating tenant {} — no remaining active subscription", sub.tenant_id);
+                    let mut active_tenant: crate::models::tenant::ActiveModel = t.into();
+                    active_tenant.is_active = sea_orm::Set(Some(false));
+                    let _ = sea_orm::ActiveModelTrait::update(active_tenant, db).await;
+                }
             }
         }
 

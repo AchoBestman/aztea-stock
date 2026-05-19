@@ -96,10 +96,23 @@ impl SubscriptionService {
 
         let page = params.page.unwrap_or(1);
         let per_page = params.per_page.unwrap_or(20);
+        let order_desc = params.order_type.as_deref().unwrap_or("desc") != "asc";
 
         use sea_orm::{PaginatorTrait, QueryOrder};
-        
-        query = query.order_by_desc(subscription::Column::CreatedAt);
+
+        let order_col = match params.order_by.as_deref().unwrap_or("created_at") {
+            "plan" => subscription::Column::Plan,
+            "status" => subscription::Column::Status,
+            "expires_at" => subscription::Column::ExpiresAt,
+            "started_at" => subscription::Column::StartedAt,
+            _ => subscription::Column::CreatedAt,
+        };
+
+        query = if order_desc {
+            query.order_by_desc(order_col)
+        } else {
+            query.order_by_asc(order_col)
+        };
 
         let paginator = query.paginate(db, per_page);
         let total = paginator.num_items().await?;
