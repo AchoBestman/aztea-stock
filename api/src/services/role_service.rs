@@ -16,6 +16,7 @@ pub struct RoleService;
 impl RoleService {
     pub async fn list_roles(
         db: &DatabaseConnection,
+        caller_user_id: &str,
         caller_tenant_id: &str,
         filter_tenant_id: Option<String>,
         name_query: Option<String>,
@@ -38,20 +39,27 @@ impl RoleService {
         };
 
         let models = RoleRepository::find_all_filtered(db, target_tenant, name_query.as_deref()).await?;
-        let dtos = models
-            .into_iter()
-            .map(|m| RoleResponse {
+        let is_sys_sa = Self::is_system_super_admin(db, caller_user_id, caller_tenant_id).await.unwrap_or(false);
+
+        let mut dtos = Vec::new();
+        for m in models {
+            // Only show the "Super Admin" role to system Super Admin callers
+            if m.name == "Super Admin" && !is_sys_sa {
+                continue;
+            }
+            dtos.push(RoleResponse {
                 id: m.id,
                 tenant_id: m.tenant_id,
                 name: m.name,
                 description: m.description,
-            })
-            .collect();
+            });
+        }
         Ok(dtos)
     }
 
     pub async fn get_role(
         db: &DatabaseConnection,
+        caller_user_id: &str,
         id: &str,
         caller_tenant_id: &str,
     ) -> Result<RoleResponse, ApiError> {
@@ -62,6 +70,14 @@ impl RoleService {
 
         // Multi-tenant guard
         crate::utils::auth::require_tenant_access(db, caller_tenant_id, &m.tenant_id).await?;
+
+        // If the role is the system Super Admin, only allow system Super Admin users to access
+        if m.name == "Super Admin" {
+            let is_sys_sa = Self::is_system_super_admin(db, caller_user_id, caller_tenant_id).await?;
+            if !is_sys_sa {
+                return Err(ApiError::NotFound("Rôle introuvable".to_string()));
+            }
+        }
 
         Ok(RoleResponse {
             id: m.id,
@@ -202,6 +218,7 @@ impl RoleService {
     pub async fn sync_role_permissions(
         db: &DatabaseConnection,
         role_id: &str,
+        caller_user_id: &str,
         caller_tenant_id: &str,
         permission_ids: Vec<String>,
     ) -> Result<(), ApiError> {
@@ -216,9 +233,12 @@ impl RoleService {
         // 2. Multi-tenant guard
         crate::utils::auth::require_tenant_access(db, caller_tenant_id, &role.tenant_id).await?;
 
-        // 3. Prevent modifying permissions of the "Super Admin" role
+        // 3. Prevent modifying permissions of the "Super Admin" role unless they are a system super admin
         if role.name == "Super Admin" {
-            return Err(ApiError::BadRequest("Les permissions du rôle 'Super Admin' ne peuvent pas être modifiées.".to_string()));
+            let is_sys_sa = Self::is_system_super_admin(db, caller_user_id, caller_tenant_id).await?;
+            if !is_sys_sa {
+                return Err(ApiError::BadRequest("Seul un Super Admin du tenant système peut modifier les permissions du rôle 'Super Admin'.".to_string()));
+            }
         }
 
         // 4. Validate that all provided permission_ids exist in the database
@@ -270,6 +290,7 @@ impl RoleService {
 
     pub async fn list_role_permissions(
         db: &DatabaseConnection,
+        caller_user_id: &str,
         role_id: &str,
         caller_tenant_id: &str,
     ) -> Result<Vec<crate::services::permission_service::PermissionResponse>, ApiError> {
@@ -284,8 +305,13 @@ impl RoleService {
         // 2. Multi-tenant guard
         crate::utils::auth::require_tenant_access(db, caller_tenant_id, &role.tenant_id).await?;
 
-        // 3. If it's the system Super Admin role, return all system permissions
+        // 3. If it's the system Super Admin role, only allow system Super Admin users to view
         if role.name == "Super Admin" {
+            let is_sys_sa = Self::is_system_super_admin(db, caller_user_id, caller_tenant_id).await?;
+            if !is_sys_sa {
+                return Err(ApiError::NotFound("Rôle introuvable".to_string()));
+            }
+
             let all_perms = permission::Entity::find().all(db).await?;
             let response = all_perms
                 .into_iter()
@@ -325,5 +351,42 @@ impl RoleService {
             .collect();
 
         Ok(response)
+    }
+
+    pub async fn is_system_super_admin(
+        db: &DatabaseConnection,
+        user_id: &str,
+        caller_tenant_id: &str,
+    ) -> Result<bool, ApiError> {
+        use sea_orm::{EntityTrait, QueryFilter, ColumnTrait};
+        use crate::models::{user_role, role};
+
+        // 1. Fetch tenant
+        let caller_tenant = crate::repositories::tenant_repository::TenantRepository::find_by_id(db, caller_tenant_id)
+            .await?
+            .ok_or_else(|| ApiError::NotFound("Tenant de l'utilisateur introuvable".to_string()))?;
+
+        if !caller_tenant.is_system {
+            return Ok(false);
+        }
+
+        // 2. Fetch user's roles
+        let user_roles = user_role::Entity::find()
+            .filter(user_role::Column::UserId.eq(user_id))
+            .all(db)
+            .await?;
+
+        let role_ids: Vec<String> = user_roles.into_iter().map(|ur| ur.role_id).collect();
+        if role_ids.is_empty() {
+            return Ok(false);
+        }
+
+        let roles = role::Entity::find()
+            .filter(role::Column::Id.is_in(role_ids))
+            .all(db)
+            .await?;
+
+        let is_super_admin = roles.iter().any(|r| r.name == "Super Admin");
+        Ok(is_super_admin)
     }
 }

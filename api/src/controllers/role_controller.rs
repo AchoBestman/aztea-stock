@@ -50,7 +50,7 @@ pub async fn list_roles(
 
     require_permission(db, &claims.sub, "can_read_role").await?;
 
-    let roles = RoleService::list_roles(db, &claims.tenant_id, query.tenant_id, query.name).await?;
+    let roles = RoleService::list_roles(db, &claims.sub, &claims.tenant_id, query.tenant_id, query.name).await?;
     Ok(Json(roles))
 }
 
@@ -81,7 +81,7 @@ pub async fn get_role(
 
     require_permission(db, &claims.sub, "can_read_role").await?;
 
-    let role = RoleService::get_role(db, &id, &claims.tenant_id).await?;
+    let role = RoleService::get_role(db, &claims.sub, &id, &claims.tenant_id).await?;
     Ok(Json(role))
 }
 
@@ -235,7 +235,7 @@ pub async fn assign_role_permissions(
     require_permission(db, &claims.sub, "can_update_role").await?;
 
     // 2. Perform synchronization
-    RoleService::sync_role_permissions(db, &role_id, &claims.tenant_id, payload.permission_ids).await?;
+    RoleService::sync_role_permissions(db, &role_id, &claims.sub, &claims.tenant_id, payload.permission_ids).await?;
 
     Ok(Json(AssignRolePermissionsResponse {
         success: true,
@@ -273,7 +273,7 @@ pub async fn list_role_permissions(
     require_permission(db, &claims.sub, "can_read_role").await?;
 
     // 2. Fetch permissions
-    let permissions = RoleService::list_role_permissions(db, &role_id, &claims.tenant_id).await?;
+    let permissions = RoleService::list_role_permissions(db, &claims.sub, &role_id, &claims.tenant_id).await?;
 
     Ok(Json(permissions))
 }

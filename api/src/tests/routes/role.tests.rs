@@ -511,9 +511,11 @@ async fn test_list_role_permissions() {
     db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO roles (id, tenant_id, name, description) VALUES ('super-admin-role', 'tenant-1', 'Super Admin', 'Supreme')".to_string())).await.unwrap();
     
     db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO permissions (id, name, description, model_group) VALUES ('p-read', 'can_read_role', 'Read', 'roles')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO permissions (id, name, description, model_group) VALUES ('p-update', 'can_update_role', 'Update', 'roles')".to_string())).await.unwrap();
     db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO permissions (id, name, description, model_group) VALUES ('perm-sale-1', 'can_create_sale', 'Create Sales', 'sales')".to_string())).await.unwrap();
     
     db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO role_permissions (role_id, permission_id) VALUES ('role-1', 'p-read')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO role_permissions (role_id, permission_id) VALUES ('role-1', 'p-update')".to_string())).await.unwrap();
     db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO role_permissions (role_id, permission_id) VALUES ('role-target', 'perm-sale-1')".to_string())).await.unwrap();
     
     db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO users (id, tenant_id, name, email, password_hash, is_active) VALUES ('user-1', 'tenant-1', 'User Admin', 'admin@tenant.com', 'hash', 1)".to_string())).await.unwrap();
@@ -543,7 +545,7 @@ async fn test_list_role_permissions() {
     assert_eq!(arr.len(), 1);
     assert_eq!(arr[0]["id"], "perm-sale-1");
 
-    // 2. Success: fetch permissions of 'super-admin-role' (must return all 2 seeded permissions)
+    // 2. Fetch permissions of 'super-admin-role' as a non-super admin (user-1) -> must fail with 404 (hidden)
     let res_sa = app.clone()
         .oneshot(
             Request::builder()
@@ -555,13 +557,65 @@ async fn test_list_role_permissions() {
         )
         .await
         .unwrap();
-    assert_eq!(res_sa.status(), StatusCode::OK);
-    let bytes_sa = res_sa.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(res_sa.status(), StatusCode::NOT_FOUND);
+
+    // Seed a Super Admin user
+    db_execute_raw(&state, "INSERT INTO users (id, tenant_id, name, email, password_hash, is_active) VALUES ('user-super', 'tenant-1', 'Super User', 'super@tenant.com', 'hash', 1)").await;
+    db_execute_raw(&state, "INSERT INTO user_roles (user_id, role_id) VALUES ('user-super', 'super-admin-role')").await;
+    let token_super = create_token("user-super", "tenant-1", "Super Admin", &config.jwt_secret);
+
+    // 2b. Fetch permissions of 'super-admin-role' as system Super Admin -> must succeed and return all 2 system permissions
+    let res_sa_success = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/admin/roles/super-admin-role/permissions")
+                .header("Authorization", format!("Bearer {}", token_super))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_sa_success.status(), StatusCode::OK);
+    let bytes_sa = res_sa_success.into_body().collect().await.unwrap().to_bytes();
     let body_sa: Value = serde_json::from_slice(&bytes_sa).unwrap();
     let arr_sa = body_sa.as_array().unwrap();
-    assert_eq!(arr_sa.len(), 2);
+    assert_eq!(arr_sa.len(), 3);
 
-    // 3. Unauthorized: accessing a role from another tenant if caller is not system tenant (or if different tenant rules apply)
+    // 3. Sync permissions to 'super-admin-role' as a system Super Admin -> must succeed
+    let sync_payload = json!({
+        "permission_ids": vec!["p-read"]
+    });
+    let res_sync_sa = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/admin/roles/super-admin-role/permissions")
+                .header("Authorization", format!("Bearer {}", token_super))
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&sync_payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_sync_sa.status(), StatusCode::OK);
+
+    // 4. Sync permissions to 'super-admin-role' as non-super admin (user-1) -> must fail with 400
+    let res_sync_fail = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/admin/roles/super-admin-role/permissions")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&sync_payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_sync_fail.status(), StatusCode::BAD_REQUEST);
+
+    // 5. Unauthorized: accessing a role from another tenant if caller is not system tenant (or if different tenant rules apply)
     // Here, user-1 is system tenant (is_system = 1), so user-1 can access tenant-2's role. Let's create an unauthorized token for a non-system user.
     db_execute_raw(&state, "INSERT INTO users (id, tenant_id, name, email, password_hash, is_active) VALUES ('user-2', 'tenant-2', 'Tenant 2 User', 't2@tenant.com', 'hash', 1)").await;
     db_execute_raw(&state, "INSERT INTO roles (id, tenant_id, name, description) VALUES ('role-2', 'tenant-2', 't2-role', 'Tenant 2 Role')").await;
