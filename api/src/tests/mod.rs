@@ -15,3 +15,6 @@ pub mod db_tests;
 
 #[path = "errors/errors.tests.rs"]
 pub mod errors_tests;
+
+#[path = "models/role.tests.rs"]
+pub mod role_model_tests;

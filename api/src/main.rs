@@ -5,12 +5,13 @@ use tower_http::compression::CompressionLayer;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-mod config;
-mod db;
-mod errors;
-mod middleware;
-mod models;
-mod routes;
+pub mod config;
+pub mod db;
+pub mod errors;
+pub mod middleware;
+pub mod models;
+pub mod controllers;
+pub mod routes;
 
 pub struct AppState {
     pub db: Option<sqlx::AnyPool>,
