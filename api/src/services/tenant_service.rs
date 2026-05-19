@@ -2,13 +2,51 @@ use sea_orm::DatabaseConnection;
 use crate::{
     errors::ApiError,
     repositories::tenant_repository::TenantRepository,
-    dtos::tenant_dto::{UpdateTenantPayload, TenantResponse},
+    dtos::tenant_dto::{CreateTenantPayload, UpdateTenantPayload, TenantResponse},
     utils::crypto::encrypt,
 };
 
 pub struct TenantService;
 
 impl TenantService {
+    pub async fn create_tenant(
+        db: &DatabaseConnection,
+        payload: CreateTenantPayload,
+    ) -> Result<TenantResponse, ApiError> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().fixed_offset();
+        let tenant = crate::models::tenant::Model {
+            id,
+            name: payload.name,
+            business_type: payload.business_type,
+            email: payload.email,
+            phone: payload.phone,
+            address: payload.address,
+            country: payload.country,
+            timezone: payload.timezone,
+            logo_url: payload.logo_url,
+            is_active: Some(true),
+            is_system: false,
+            two_factor_enabled: false,
+            sender_email: None,
+            sender_user: None,
+            sender_password: None,
+            created_at: now,
+            updated_at: now,
+        };
+
+        let created = TenantRepository::create(db, tenant).await?;
+        Ok(Self::map_to_response(created))
+    }
+
+    pub async fn list_tenants(
+        db: &DatabaseConnection,
+    ) -> Result<Vec<TenantResponse>, ApiError> {
+        let models = TenantRepository::find_all(db).await?;
+        let responses = models.into_iter().map(Self::map_to_response).collect();
+        Ok(responses)
+    }
+
     pub async fn get_tenant(
         db: &DatabaseConnection,
         tenant_id: &str,
@@ -22,13 +60,55 @@ impl TenantService {
 
     pub async fn update_tenant(
         db: &DatabaseConnection,
-        tenant_id: &str,
+        caller_tenant_id: &str,
+        target_tenant_id: &str,
         payload: UpdateTenantPayload,
+        caller_has_credentials_permission: bool,
     ) -> Result<TenantResponse, ApiError> {
-        let mut tenant = TenantRepository::find_by_id(db, tenant_id)
+        // Load caller tenant
+        let caller_tenant = TenantRepository::find_by_id(db, caller_tenant_id)
+            .await?
+            .ok_or_else(|| ApiError::NotFound("Tenant de l'utilisateur introuvable".to_string()))?;
+
+        // 1. Guard: Only system tenant users can update another tenant
+        if target_tenant_id != caller_tenant_id && !caller_tenant.is_system {
+            return Err(ApiError::Unauthorized(
+                "Vous n'êtes pas autorisé à modifier les données d'un autre tenant.".to_string()
+            ));
+        }
+
+        // Load target tenant
+        let mut tenant = TenantRepository::find_by_id(db, target_tenant_id)
             .await?
             .ok_or_else(|| ApiError::NotFound("Tenant introuvable".to_string()))?;
 
+        // 2. Guard: Identify which fields the caller wants to modify
+        let system_only_fields_modified = payload.business_type.is_some()
+            || payload.country.is_some()
+            || payload.is_active.is_some()
+            || payload.name.is_some()
+            || payload.sender_email.is_some()
+            || payload.sender_password.is_some()
+            || payload.sender_user.is_some();
+
+        if system_only_fields_modified && !caller_tenant.is_system {
+            return Err(ApiError::Unauthorized(
+                "Seul un utilisateur du tenant système est autorisé à modifier ces informations.".to_string()
+            ));
+        }
+
+        // 3. Guard: specific permission needed to modify credentials
+        let credentials_fields_modified = payload.sender_email.is_some()
+            || payload.sender_password.is_some()
+            || payload.sender_user.is_some();
+
+        if credentials_fields_modified && !caller_has_credentials_permission {
+            return Err(ApiError::Unauthorized(
+                "Vous n'avez pas la permission spécifique pour modifier les informations de connexion SMTP.".to_string()
+            ));
+        }
+
+        // Apply changes
         if let Some(name) = payload.name {
             tenant.name = name;
         }
@@ -59,21 +139,54 @@ impl TenantService {
         if let Some(sender_email) = payload.sender_email {
             tenant.sender_email = sender_email;
         }
+        if let Some(two_factor) = payload.two_factor_enabled {
+            tenant.two_factor_enabled = two_factor;
+        }
 
         // Encryption logic for sender_user and sender_password
         if let Some(sender_user) = payload.sender_user {
             let sender_user_str = sender_user.unwrap_or_default();
             if !sender_user_str.is_empty() {
                 tenant.sender_user = Some(encrypt(&sender_user_str));
+            } else {
+                tenant.sender_user = None;
             }
         }
         if let Some(sender_password) = payload.sender_password {
             let sender_password_str = sender_password.unwrap_or_default();
             if !sender_password_str.is_empty() {
                 tenant.sender_password = Some(encrypt(&sender_password_str));
+            } else {
+                tenant.sender_password = None;
             }
         }
 
+        tenant.updated_at = chrono::Utc::now().fixed_offset();
+
+        let updated = TenantRepository::update(db, tenant).await?;
+        Ok(Self::map_to_response(updated))
+    }
+
+    pub async fn delete_tenant(
+        db: &DatabaseConnection,
+        caller_tenant_id: &str,
+        target_tenant_id: &str,
+    ) -> Result<TenantResponse, ApiError> {
+        let caller_tenant = TenantRepository::find_by_id(db, caller_tenant_id)
+            .await?
+            .ok_or_else(|| ApiError::NotFound("Tenant de l'utilisateur introuvable".to_string()))?;
+
+        if !caller_tenant.is_system {
+            return Err(ApiError::Unauthorized(
+                "Seul un utilisateur du tenant système est autorisé à supprimer un tenant.".to_string()
+            ));
+        }
+
+        let mut tenant = TenantRepository::find_by_id(db, target_tenant_id)
+            .await?
+            .ok_or_else(|| ApiError::NotFound("Tenant introuvable".to_string()))?;
+
+        tenant.is_active = Some(false);
         tenant.updated_at = chrono::Utc::now().fixed_offset();
 
         let updated = TenantRepository::update(db, tenant).await?;

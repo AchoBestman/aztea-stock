@@ -1,15 +1,104 @@
 use axum::{
-    Json, Extension, extract::State
+    Json, Extension, extract::{State, Query, Path}
 };
 use std::sync::Arc;
 use crate::{
     AppState,
     errors::ApiError,
     middleware::auth::Claims,
-    dtos::tenant_dto::{UpdateTenantPayload, SetTenantTwoFactorPayload, TenantResponse},
+    dtos::tenant_dto::{CreateTenantPayload, UpdateTenantPayload, SetTenantTwoFactorPayload, TenantResponse},
     services::tenant_service::TenantService,
-    utils::auth::require_permission,
+    utils::auth::{require_permission, check_permission},
 };
+
+#[derive(serde::Deserialize, utoipa::IntoParams)]
+pub struct UpdateTenantQuery {
+    pub tenant_id: Option<String>,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/tenants",
+    request_body(
+        content = CreateTenantPayload,
+        description = "Champs pour créer un nouveau tenant",
+        content_type = "application/json"
+    ),
+    responses(
+        (status = 200, description = "Tenant créé avec succès.", body = TenantResponse),
+        (status = 401, description = "Authentification requise ou token JWT invalide."),
+        (status = 403, description = "Permissions insuffisantes.")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    tag = "Admin - Tenant"
+)]
+pub async fn create_tenant(
+    Extension(claims): Extension<Claims>,
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<CreateTenantPayload>,
+) -> Result<Json<TenantResponse>, ApiError> {
+    let db = state.db.as_ref().ok_or_else(|| {
+        ApiError::Internal("La base de données n'est pas disponible".to_string())
+    })?;
+
+    // 1. Require can_create_tenant permission
+    require_permission(db, &claims.sub, "can_create_tenant").await?;
+
+    // 2. Load caller's tenant to verify it's the system tenant
+    let caller_tenant = crate::repositories::tenant_repository::TenantRepository::find_by_id(db, &claims.tenant_id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound("Tenant de l'utilisateur introuvable".to_string()))?;
+
+    if !caller_tenant.is_system {
+        return Err(ApiError::Unauthorized(
+            "Seul un utilisateur du tenant système est autorisé à créer un tenant.".to_string()
+        ));
+    }
+
+    let response = TenantService::create_tenant(db, payload).await?;
+    Ok(Json(response))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/tenants",
+    responses(
+        (status = 200, description = "Liste de tous les tenants récupérée avec succès.", body = [TenantResponse]),
+        (status = 401, description = "Authentification requise ou token JWT invalide."),
+        (status = 403, description = "Permissions insuffisantes.")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    tag = "Admin - Tenant"
+)]
+pub async fn list_tenants(
+    Extension(claims): Extension<Claims>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<TenantResponse>>, ApiError> {
+    let db = state.db.as_ref().ok_or_else(|| {
+        ApiError::Internal("La base de données n'est pas disponible".to_string())
+    })?;
+
+    // 1. Require can_read_tenant permission
+    require_permission(db, &claims.sub, "can_read_tenant").await?;
+
+    // 2. Load caller's tenant to verify it's the system tenant
+    let caller_tenant = crate::repositories::tenant_repository::TenantRepository::find_by_id(db, &claims.tenant_id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound("Tenant de l'utilisateur introuvable".to_string()))?;
+
+    if !caller_tenant.is_system {
+        return Err(ApiError::Unauthorized(
+            "Seul un utilisateur du tenant système est autorisé à lister les tenants.".to_string()
+        ));
+    }
+
+    let response = TenantService::list_tenants(db).await?;
+    Ok(Json(response))
+}
 
 #[utoipa::path(
     get,
@@ -31,6 +120,9 @@ pub async fn get_tenant(
         ApiError::Internal("La base de données n'est pas disponible".to_string())
     })?;
 
+    // Require can_read_tenant permission to see detail of own tenant
+    require_permission(db, &claims.sub, "can_read_tenant").await?;
+
     let response = TenantService::get_tenant(db, &claims.tenant_id).await?;
     Ok(Json(response))
 }
@@ -38,6 +130,9 @@ pub async fn get_tenant(
 #[utoipa::path(
     put,
     path = "/api/v1/admin/tenant",
+    params(
+        UpdateTenantQuery
+    ),
     request_body(
         content = UpdateTenantPayload,
         description = "Champs à modifier pour le tenant",
@@ -56,6 +151,7 @@ pub async fn get_tenant(
 pub async fn update_tenant(
     Extension(claims): Extension<Claims>,
     State(state): State<Arc<AppState>>,
+    Query(query): Query<UpdateTenantQuery>,
     Json(payload): Json<UpdateTenantPayload>,
 ) -> Result<Json<TenantResponse>, ApiError> {
     let db = state.db.as_ref().ok_or_else(|| {
@@ -65,7 +161,49 @@ pub async fn update_tenant(
     // Check permission
     require_permission(db, &claims.sub, "can_update_tenant").await?;
 
-    let response = TenantService::update_tenant(db, &claims.tenant_id, payload).await?;
+    let target_tenant_id = query.tenant_id.as_deref().unwrap_or(&claims.tenant_id);
+
+    let caller_has_credentials_permission = check_permission(db, &claims.sub, "can_update_tenant_credentials")
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
+
+    let response = TenantService::update_tenant(
+        db,
+        &claims.tenant_id,
+        target_tenant_id,
+        payload,
+        caller_has_credentials_permission,
+    ).await?;
+
+    Ok(Json(response))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/admin/tenants/{id}",
+    responses(
+        (status = 200, description = "Tenant soft-deleté avec succès.", body = TenantResponse),
+        (status = 401, description = "Authentification requise ou token JWT invalide."),
+        (status = 403, description = "Permissions insuffisantes.")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    tag = "Admin - Tenant"
+)]
+pub async fn delete_tenant(
+    Extension(claims): Extension<Claims>,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<TenantResponse>, ApiError> {
+    let db = state.db.as_ref().ok_or_else(|| {
+        ApiError::Internal("La base de données n'est pas disponible".to_string())
+    })?;
+
+    // 1. Require can_delete_tenant permission
+    require_permission(db, &claims.sub, "can_delete_tenant").await?;
+
+    let response = TenantService::delete_tenant(db, &claims.tenant_id, &id).await?;
     Ok(Json(response))
 }
 

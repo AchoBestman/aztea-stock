@@ -48,6 +48,23 @@ pub async fn extract_tenant(
     .map_err(|_| StatusCode::UNAUTHORIZED)?
     .claims;
 
+    // Check if the tenant is active
+    if let Some(db) = &state.db {
+        use sea_orm::EntityTrait;
+        let tenant_model = crate::models::tenant::Entity::find_by_id(&claims.tenant_id)
+            .one(db)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        
+        if let Some(t) = tenant_model {
+            if t.is_active == Some(false) {
+                return Err(StatusCode::UNAUTHORIZED);
+            }
+        } else {
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+    }
+
     req.extensions_mut().insert(claims);
     Ok(next.run(req).await)
 }

@@ -2,6 +2,18 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 #[derive(Deserialize, ToSchema, Clone, Debug)]
+pub struct CreateTenantPayload {
+    pub name: String,
+    pub business_type: String,
+    pub email: String,
+    pub phone: Option<String>,
+    pub address: Option<String>,
+    pub country: Option<String>,
+    pub timezone: Option<String>,
+    pub logo_url: Option<String>,
+}
+
+#[derive(Deserialize, ToSchema, Clone, Debug)]
 pub struct UpdateTenantPayload {
     pub name: Option<String>,
     pub business_type: Option<String>,
@@ -15,6 +27,7 @@ pub struct UpdateTenantPayload {
     pub sender_email: Option<Option<String>>,
     pub sender_user: Option<Option<String>>,
     pub sender_password: Option<Option<String>>,
+    pub two_factor_enabled: Option<bool>,
 }
 
 #[derive(Deserialize, ToSchema, Clone, Debug)]
