@@ -17,6 +17,31 @@ impl RoleRepository {
             .await
     }
 
+    pub async fn find_all_filtered(
+        db: &DatabaseConnection,
+        tenant_id: Option<&str>,
+        name_query: Option<&str>,
+    ) -> Result<Vec<role::Model>, DbErr> {
+        let mut query = role::Entity::find();
+        
+        if let Some(t_id) = tenant_id {
+            query = query.filter(role::Column::TenantId.eq(t_id));
+        }
+        
+        if let Some(n) = name_query {
+            query = query.filter(role::Column::Name.contains(n));
+        }
+        
+        query.all(db).await
+    }
+
+    pub async fn find_by_id_global(
+        db: &DatabaseConnection,
+        id: &str,
+    ) -> Result<Option<role::Model>, DbErr> {
+        role::Entity::find_by_id(id).one(db).await
+    }
+
     pub async fn find_by_id(
         db: &DatabaseConnection,
         id: &str,

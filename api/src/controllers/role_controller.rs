@@ -1,7 +1,9 @@
 use axum::{
-    Json, Extension, extract::{Path, State}
+    Json, Extension, extract::{Path, State, Query}
 };
 use std::sync::Arc;
+use serde::Deserialize;
+use utoipa::IntoParams;
 use crate::{
     AppState,
     errors::ApiError,
@@ -15,9 +17,19 @@ use crate::{
     utils::auth::require_permission,
 };
 
+/// Paramètres de filtrage pour la liste des rôles
+#[derive(Deserialize, IntoParams)]
+pub struct ListRolesQuery {
+    /// Filtrer par identifiant de tenant (accessible uniquement pour les utilisateurs du tenant système)
+    pub tenant_id: Option<String>,
+    /// Rechercher par nom du rôle (recherche partielle)
+    pub name: Option<String>,
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/admin/roles",
+    params(ListRolesQuery),
     responses(
         (status = 200, description = "Liste des rôles récupérée avec succès.", body = Vec<RoleResponse>),
         (status = 401, description = "Authentification requise ou token JWT invalide.")
@@ -28,6 +40,7 @@ use crate::{
     tag = "Admin - Roles"
 )]
 pub async fn list_roles(
+    Query(query): Query<ListRolesQuery>,
     Extension(claims): Extension<Claims>,
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<RoleResponse>>, ApiError> {
@@ -37,7 +50,7 @@ pub async fn list_roles(
 
     require_permission(db, &claims.sub, "can_read_role").await?;
 
-    let roles = RoleService::list_roles(db, &claims.tenant_id).await?;
+    let roles = RoleService::list_roles(db, &claims.tenant_id, query.tenant_id, query.name).await?;
     Ok(Json(roles))
 }
 

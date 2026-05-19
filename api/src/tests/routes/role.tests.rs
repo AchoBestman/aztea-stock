@@ -111,3 +111,145 @@ async fn test_delete_role_success_when_not_assigned() {
     let body: Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body["success"], true);
 }
+
+#[tokio::test]
+async fn test_list_roles_with_tenant_filter_system_tenant() {
+    let db = setup_test_db().await;
+    
+    // Seed system tenant and a regular tenant
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO tenants (id, name, business_type, email, is_system) VALUES ('system-tenant', 'System', 'pharmacy', 'system@system.com', 1)".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO tenants (id, name, business_type, email, is_system) VALUES ('tenant-2', 'Other Tenant', 'pharmacy', 'other@tenant.com', 0)".to_string())).await.unwrap();
+    
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO roles (id, tenant_id, name, description) VALUES ('role-sys', 'system-tenant', 'sysadmin', 'System Admin')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO roles (id, tenant_id, name, description) VALUES ('role-other', 'tenant-2', 'clerk', 'Clerk')".to_string())).await.unwrap();
+    
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO permissions (id, name, description, model_group) VALUES ('perm-read', 'can_read_role', 'Read roles', 'roles')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO role_permissions (role_id, permission_id) VALUES ('role-sys', 'perm-read')".to_string())).await.unwrap();
+    
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO users (id, tenant_id, name, email, password_hash, is_active) VALUES ('user-sys', 'system-tenant', 'Sys User', 'sys@example.com', 'hash', 1)".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO user_roles (user_id, role_id) VALUES ('user-sys', 'role-sys')".to_string())).await.unwrap();
+
+    let config = Config::default();
+    let state = Arc::new(AppState { db: Some(db), config: config.clone() });
+    let app = create_app(state);
+
+    let token = create_token("user-sys", "system-tenant", "sysadmin", &config.jwt_secret);
+
+    // List roles with no filter (system tenant sees all roles)
+    let response_all = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/admin/roles")
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response_all.status(), StatusCode::OK);
+    let bytes_all = response_all.into_body().collect().await.unwrap().to_bytes();
+    let body_all: Value = serde_json::from_slice(&bytes_all).unwrap();
+    let arr_all = body_all.as_array().unwrap();
+    assert_eq!(arr_all.len(), 2);
+
+    // List roles filtered by tenant-2
+    let response_filtered = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/admin/roles?tenant_id=tenant-2")
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response_filtered.status(), StatusCode::OK);
+    let bytes_filtered = response_filtered.into_body().collect().await.unwrap().to_bytes();
+    let body_filtered: Value = serde_json::from_slice(&bytes_filtered).unwrap();
+    let arr_filtered = body_filtered.as_array().unwrap();
+    assert_eq!(arr_filtered.len(), 1);
+    assert_eq!(arr_filtered[0]["id"], "role-other");
+    assert_eq!(arr_filtered[0]["name"], "clerk");
+}
+
+#[tokio::test]
+async fn test_list_roles_with_name_search() {
+    let db = setup_test_db().await;
+    
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO tenants (id, name, business_type, email, is_system) VALUES ('tenant-1', 'My Tenant', 'pharmacy', 'own@tenant.com', 0)".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO roles (id, tenant_id, name, description) VALUES ('role-1', 'tenant-1', 'admin', 'Tenant admin')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO roles (id, tenant_id, name, description) VALUES ('role-2', 'tenant-1', 'cashier', 'Tenant cashier')".to_string())).await.unwrap();
+    
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO permissions (id, name, description, model_group) VALUES ('perm-read', 'can_read_role', 'Read roles', 'roles')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO role_permissions (role_id, permission_id) VALUES ('role-1', 'perm-read')".to_string())).await.unwrap();
+    
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO users (id, tenant_id, name, email, password_hash, is_active) VALUES ('user-1', 'tenant-1', 'User Admin', 'admin@tenant.com', 'hash', 1)".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO user_roles (user_id, role_id) VALUES ('user-1', 'role-1')".to_string())).await.unwrap();
+
+    let config = Config::default();
+    let state = Arc::new(AppState { db: Some(db), config: config.clone() });
+    let app = create_app(state);
+
+    let token = create_token("user-1", "tenant-1", "admin", &config.jwt_secret);
+
+    // Search by name "cash"
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/admin/roles?name=cash")
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    let arr = body.as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["id"], "role-2");
+    assert_eq!(arr[0]["name"], "cashier");
+}
+
+#[tokio::test]
+async fn test_non_system_tenant_forbidden_from_other_tenant_role() {
+    let db = setup_test_db().await;
+    
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO tenants (id, name, business_type, email, is_system) VALUES ('tenant-1', 'Tenant One', 'pharmacy', 't1@tenant.com', 0)".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO tenants (id, name, business_type, email, is_system) VALUES ('tenant-2', 'Tenant Two', 'pharmacy', 't2@tenant.com', 0)".to_string())).await.unwrap();
+    
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO roles (id, tenant_id, name, description) VALUES ('role-1', 'tenant-1', 'admin', 'Tenant one admin')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO roles (id, tenant_id, name, description) VALUES ('role-2', 'tenant-2', 'manager', 'Tenant two manager')".to_string())).await.unwrap();
+    
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO permissions (id, name, description, model_group) VALUES ('perm-all', 'can_read_role', 'Read roles', 'roles')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO role_permissions (role_id, permission_id) VALUES ('role-1', 'perm-all')".to_string())).await.unwrap();
+    
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO users (id, tenant_id, name, email, password_hash, is_active) VALUES ('user-1', 'tenant-1', 'User One', 'user1@tenant.com', 'hash', 1)".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO user_roles (user_id, role_id) VALUES ('user-1', 'role-1')".to_string())).await.unwrap();
+
+    let config = Config::default();
+    let state = Arc::new(AppState { db: Some(db), config: config.clone() });
+    let app = create_app(state);
+
+    let token = create_token("user-1", "tenant-1", "admin", &config.jwt_secret);
+
+    // Try accessing role-2 (which belongs to tenant-2)
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/admin/roles/role-2")
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    
+    // Non-system user must be blocked with Unauthorized (401)
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
