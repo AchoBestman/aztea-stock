@@ -261,6 +261,7 @@ async fn run_seeds(pool: &AnyPool) -> Result<(), anyhow::Error> {
         ("can_update_tenant", "Permet de modifier les tenants", "tenants"),
         ("can_delete_tenant", "Permet de supprimer les tenants", "tenants"),
         ("can_set_tenant_two_factor", "Permet de configurer le Two Factor d'un tenant", "tenants"),
+        ("can_update_tenant_credentials", "Permet de modifier les identifiants SMTP de connexion d'un tenant", "tenants"),
         // Users
         ("can_create_user", "Permet d'ajouter un utilisateur", "users"),
         ("can_read_user", "Permet de voir les utilisateurs", "users"),
