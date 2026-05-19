@@ -16,12 +16,18 @@ pub struct UpdateTenantQuery {
     pub tenant_id: Option<String>,
 }
 
+/// Paramètres de filtrage pour la liste des tenants
 #[derive(serde::Deserialize, utoipa::IntoParams, Clone, Debug)]
 pub struct ListTenantsQuery {
+    /// Filtrer par type d'activité ('pharmacy', 'supermarket' ou 'both')
     pub business_type: Option<String>,
+    /// Rechercher un motif sur les champs name, email, phone, country et address
     pub search: Option<String>,
+    /// Filtrer par statut d'activation (valeurs acceptées : true, false, 1, 0)
     pub is_active: Option<String>,
+    /// Filtrer par date de création supérieure ou égale (ex: ISO '2026-05-19' ou RFC3339 '2026-05-19T10:00:00Z')
     pub created_after: Option<String>,
+    /// Filtrer par date de création inférieure ou égale (ex: ISO '2026-05-19' ou RFC3339 '2026-05-19T10:00:00Z')
     pub created_before: Option<String>,
 }
 
