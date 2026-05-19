@@ -223,7 +223,7 @@ async fn run_seeds(pool: &AnyPool) -> Result<(), anyhow::Error> {
     let tenant_address = env::var("SYSTEM_TENANT_ADDRESS").ok();
 
     sqlx::query(
-        "INSERT INTO tenants (id, name, business_type, email, phone, address, is_system) VALUES ($1, $2, $3, $4, $5, $6, $7)"
+        "INSERT INTO tenants (id, name, business_type, email, phone, address, is_system, two_factor_enabled) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
     )
     .bind(&tenant_id)
     .bind(&tenant_name)
@@ -232,6 +232,7 @@ async fn run_seeds(pool: &AnyPool) -> Result<(), anyhow::Error> {
     .bind(tenant_phone)
     .bind(tenant_address)
     .bind(true)
+    .bind(false)
     .execute(pool)
     .await?;
     println!("Created system tenant: {}", tenant_name);
@@ -341,13 +342,14 @@ async fn run_seeds(pool: &AnyPool) -> Result<(), anyhow::Error> {
 
     let user_id = Uuid::new_v4().to_string();
     let user_row = sqlx::query(
-        "INSERT INTO users (id, tenant_id, name, email, password_hash) VALUES ($1, $2, $3, $4, $5) RETURNING id"
+        "INSERT INTO users (id, tenant_id, name, email, password_hash, two_factor_enabled) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id"
     )
     .bind(&user_id)
     .bind(&tenant_id)
     .bind("Super Administrateur")
     .bind(&sa_email)
     .bind(&password_hash)
+    .bind(false)
     .fetch_one(pool)
     .await?;
     let actual_user_id: String = user_row.try_get(0)?;

@@ -53,8 +53,8 @@ async fn main() -> anyhow::Result<()> {
 }
 
 pub fn create_app(state: Arc<AppState>) -> Router {
-    Router::new()
-        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", routes::ApiDoc::openapi()))
+    // ── Routes protected by JWT middleware ────────────────────────────────────
+    let protected = Router::new()
         .nest("/api/v1/health", routes::health::router())
         .nest("/api/v1/auth", routes::auth::router())
         .nest("/api/v1/products", routes::products::router())
@@ -64,7 +64,16 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .nest("/api/v1/reports", routes::reports::router())
         .nest("/api/v1/subscriptions", routes::subscriptions::router())
         .nest("/api/v1/admin", routes::role_routes::router())
-        .layer(axum::middleware::from_fn_with_state(state.clone(), middleware::auth::extract_tenant))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), middleware::auth::extract_tenant));
+
+    // ── Internal routes — NOT under JWT middleware (secured by x-internal-secret) ──
+    let internal = Router::new()
+        .nest("/api/v1/internal", routes::internal::router());
+
+    Router::new()
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", routes::ApiDoc::openapi()))
+        .merge(protected)
+        .merge(internal)
         .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
         .layer(CompressionLayer::new())
         .with_state(state)

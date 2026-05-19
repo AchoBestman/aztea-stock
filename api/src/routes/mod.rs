@@ -3,6 +3,7 @@ use utoipa::OpenApi;
 pub mod role_routes;
 pub mod auth;
 pub mod health;
+pub mod internal;
 pub mod products;
 pub mod reports;
 pub mod sales;
