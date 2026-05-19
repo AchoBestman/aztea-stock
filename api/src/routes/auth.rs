@@ -8,8 +8,6 @@ pub struct LoginPayload {
     pub email: String,
     /// User password
     pub password: String,
-    /// Associated subscription license key
-    pub license_key: String,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -40,7 +38,7 @@ pub struct LoginResponse {
     responses(
         (status = 200, description = "Connexion réussie. Retourne le jeton d'accès JWT et les informations de profil.", body = LoginResponse),
         (status = 400, description = "Format de requête invalide ou champs obligatoires manquants."),
-        (status = 401, description = "Authentification échouée (identifiants incorrects ou clé de licence invalide/suspendue).")
+        (status = 401, description = "Authentification échouée (identifiants incorrects).")
     ),
     tag = "Auth"
 )]

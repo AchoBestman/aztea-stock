@@ -23,6 +23,7 @@ async fn test_role_model_crud() {
             timezone VARCHAR(100) DEFAULT 'Africa/Brazzaville',
             logo_url TEXT,
             is_active BOOLEAN DEFAULT true,
+            is_system BOOLEAN DEFAULT false NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
         );

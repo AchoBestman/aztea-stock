@@ -14,6 +14,7 @@ pub struct Model {
     pub timezone: Option<String>,
     pub logo_url: Option<String>,
     pub is_active: Option<bool>,
+    pub is_system: bool,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
 }

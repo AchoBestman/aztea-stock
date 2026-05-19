@@ -25,8 +25,7 @@ async fn test_login_success() {
 
     let payload = json!({
         "email": "test@example.com",
-        "password": "password123",
-        "license_key": "AZTEASTOCK-12345-67890-ABCDE"
+        "password": "password123"
     });
 
     let response = app
