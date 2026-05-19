@@ -26,6 +26,7 @@ pub mod sync;
         crate::controllers::role_controller::update_role,
         crate::controllers::role_controller::delete_role,
         crate::controllers::role_controller::assign_role_permissions,
+        crate::controllers::role_controller::list_role_permissions,
         crate::controllers::permission_controller::list_permissions,
         crate::controllers::tenant_controller::get_tenant,
         crate::controllers::tenant_controller::update_tenant,

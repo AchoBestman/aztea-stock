@@ -267,4 +267,63 @@ impl RoleService {
 
         Ok(())
     }
+
+    pub async fn list_role_permissions(
+        db: &DatabaseConnection,
+        role_id: &str,
+        caller_tenant_id: &str,
+    ) -> Result<Vec<crate::services::permission_service::PermissionResponse>, ApiError> {
+        use sea_orm::{EntityTrait, QueryFilter, ColumnTrait};
+        use crate::models::{role_permission, permission};
+
+        // 1. Fetch role globally first to ensure it exists
+        let role = RoleRepository::find_by_id_global(db, role_id)
+            .await?
+            .ok_or_else(|| ApiError::NotFound("Rôle introuvable".to_string()))?;
+
+        // 2. Multi-tenant guard
+        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &role.tenant_id).await?;
+
+        // 3. If it's the system Super Admin role, return all system permissions
+        if role.name == "Super Admin" {
+            let all_perms = permission::Entity::find().all(db).await?;
+            let response = all_perms
+                .into_iter()
+                .map(|p| crate::services::permission_service::PermissionResponse {
+                    id: p.id,
+                    name: p.name,
+                    description: p.description,
+                })
+                .collect();
+            return Ok(response);
+        }
+
+        // 4. Fetch permissions associated with this role
+        let role_perms = role_permission::Entity::find()
+            .filter(role_permission::Column::RoleId.eq(role_id))
+            .all(db)
+            .await?;
+
+        if role_perms.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let perm_ids: Vec<String> = role_perms.into_iter().map(|rp| rp.permission_id).collect();
+
+        let perms = permission::Entity::find()
+            .filter(permission::Column::Id.is_in(perm_ids))
+            .all(db)
+            .await?;
+
+        let response = perms
+            .into_iter()
+            .map(|p| crate::services::permission_service::PermissionResponse {
+                id: p.id,
+                name: p.name,
+                description: p.description,
+            })
+            .collect();
+
+        Ok(response)
+    }
 }

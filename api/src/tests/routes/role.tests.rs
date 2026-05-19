@@ -497,3 +497,96 @@ async fn test_list_grouped_permissions_success_and_forbidden() {
     assert_eq!(arr[1]["group"], "sales");
     assert_eq!(arr[1]["permissions"].as_array().unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn test_list_role_permissions() {
+    let db = setup_test_db().await;
+    
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO tenants (id, name, business_type, email, is_system) VALUES ('tenant-1', 'My Tenant', 'pharmacy', 'own@tenant.com', 1)".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO tenants (id, name, business_type, email, is_system) VALUES ('tenant-2', 'Tenant Two', 'pharmacy', 'two@tenant.com', 0)".to_string())).await.unwrap();
+    
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO roles (id, tenant_id, name, description) VALUES ('role-1', 'tenant-1', 'admin', 'Tenant admin')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO roles (id, tenant_id, name, description) VALUES ('role-target', 'tenant-1', 'cashier', 'Tenant cashier')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO roles (id, tenant_id, name, description) VALUES ('role-other-tenant', 'tenant-2', 'cashier2', 'Tenant cashier 2')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO roles (id, tenant_id, name, description) VALUES ('super-admin-role', 'tenant-1', 'Super Admin', 'Supreme')".to_string())).await.unwrap();
+    
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO permissions (id, name, description, model_group) VALUES ('p-read', 'can_read_role', 'Read', 'roles')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO permissions (id, name, description, model_group) VALUES ('perm-sale-1', 'can_create_sale', 'Create Sales', 'sales')".to_string())).await.unwrap();
+    
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO role_permissions (role_id, permission_id) VALUES ('role-1', 'p-read')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO role_permissions (role_id, permission_id) VALUES ('role-target', 'perm-sale-1')".to_string())).await.unwrap();
+    
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO users (id, tenant_id, name, email, password_hash, is_active) VALUES ('user-1', 'tenant-1', 'User Admin', 'admin@tenant.com', 'hash', 1)".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO user_roles (user_id, role_id) VALUES ('user-1', 'role-1')".to_string())).await.unwrap();
+
+    let config = Config::default();
+    let state = Arc::new(AppState { db: Some(db), config: config.clone() });
+    let app = create_app(state.clone());
+    let token = create_token("user-1", "tenant-1", "admin", &config.jwt_secret);
+
+    // 1. Success: fetch permissions of 'role-target'
+    let res = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/admin/roles/role-target/permissions")
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let bytes = res.into_body().collect().await.unwrap().to_bytes();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    let arr = body.as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["id"], "perm-sale-1");
+
+    // 2. Success: fetch permissions of 'super-admin-role' (must return all 2 seeded permissions)
+    let res_sa = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/admin/roles/super-admin-role/permissions")
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_sa.status(), StatusCode::OK);
+    let bytes_sa = res_sa.into_body().collect().await.unwrap().to_bytes();
+    let body_sa: Value = serde_json::from_slice(&bytes_sa).unwrap();
+    let arr_sa = body_sa.as_array().unwrap();
+    assert_eq!(arr_sa.len(), 2);
+
+    // 3. Unauthorized: accessing a role from another tenant if caller is not system tenant (or if different tenant rules apply)
+    // Here, user-1 is system tenant (is_system = 1), so user-1 can access tenant-2's role. Let's create an unauthorized token for a non-system user.
+    db_execute_raw(&state, "INSERT INTO users (id, tenant_id, name, email, password_hash, is_active) VALUES ('user-2', 'tenant-2', 'Tenant 2 User', 't2@tenant.com', 'hash', 1)").await;
+    db_execute_raw(&state, "INSERT INTO roles (id, tenant_id, name, description) VALUES ('role-2', 'tenant-2', 't2-role', 'Tenant 2 Role')").await;
+    db_execute_raw(&state, "INSERT INTO role_permissions (role_id, permission_id) VALUES ('role-2', 'p-read')").await;
+    db_execute_raw(&state, "INSERT INTO user_roles (user_id, role_id) VALUES ('user-2', 'role-2')").await;
+
+    let token_t2 = create_token("user-2", "tenant-2", "t2-role", &config.jwt_secret);
+
+    // user-2 tries to access role-target (from tenant-1) -> should be forbidden (Unauthorized/401)
+    let res_unauth = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/admin/roles/role-target/permissions")
+                .header("Authorization", format!("Bearer {}", token_t2))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_unauth.status(), StatusCode::UNAUTHORIZED);
+}
+
+// Helper to execute raw queries in tests
+async fn db_execute_raw(state: &Arc<AppState>, query: &str) {
+    let db = state.db.as_ref().unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, query.to_string())).await.unwrap();
+}

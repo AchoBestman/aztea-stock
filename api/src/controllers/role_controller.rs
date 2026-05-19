@@ -242,3 +242,38 @@ pub async fn assign_role_permissions(
         message: "Permissions du rôle synchronisées avec succès.".to_string(),
     }))
 }
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/roles/{id}/permissions",
+    params(
+        ("id" = String, Path, description = "Identifiant unique du rôle")
+    ),
+    responses(
+        (status = 200, description = "Liste des permissions associées au rôle récupérée avec succès.", body = Vec<PermissionResponse>),
+        (status = 401, description = "Authentification requise."),
+        (status = 403, description = "Permissions insuffisantes ou rôle inaccessible."),
+        (status = 404, description = "Rôle introuvable.")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    tag = "Admin - Roles"
+)]
+pub async fn list_role_permissions(
+    Path(role_id): Path<String>,
+    Extension(claims): Extension<Claims>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<crate::services::permission_service::PermissionResponse>>, ApiError> {
+    let db = state.db.as_ref().ok_or_else(|| {
+        ApiError::Internal("La base de données n'est pas disponible".to_string())
+    })?;
+
+    // 1. Guard: require can_read_role permission
+    require_permission(db, &claims.sub, "can_read_role").await?;
+
+    // 2. Fetch permissions
+    let permissions = RoleService::list_role_permissions(db, &role_id, &claims.tenant_id).await?;
+
+    Ok(Json(permissions))
+}
