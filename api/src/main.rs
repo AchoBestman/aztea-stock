@@ -73,7 +73,11 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .nest("/api/v1/internal", routes::internal::router());
 
     Router::new()
-        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", routes::ApiDoc::openapi()))
+        .merge(
+            SwaggerUi::new("/swagger-ui")
+                .url("/api-docs/openapi.json", routes::ApiDoc::openapi())
+                .config(utoipa_swagger_ui::Config::default().persist_authorization(true))
+        )
         .merge(protected)
         .merge(internal)
         .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
