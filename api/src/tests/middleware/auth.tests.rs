@@ -37,6 +37,9 @@ fn generate_token(secret: &str, role: &str) -> String {
 fn setup_auth_test_app(secret: String) -> Router {
     let config = Config {
         database_url: None,
+        sqlite_database_url: "sqlite://:memory:".to_string(),
+        db_type: "postgres".to_string(),
+        offline: false,
         jwt_secret: secret,
         port: 8080,
         rust_log: "info".to_string(),

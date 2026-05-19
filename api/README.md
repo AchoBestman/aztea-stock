@@ -14,11 +14,27 @@ DATABASE_URL=postgres://postgres:password@localhost:5432/azteastock
 JWT_SECRET=votre-super-cle-secrete-jwt-de-32-caracteres-minimum
 PORT=8080
 RUST_LOG=info,api=debug
+
+# --- Options de Base de Données ---
+# DB_TYPE=postgres                     # 'postgres' ou 'sqlite'
+# SQLITE_DATABASE_URL=sqlite://aztea-stock-offline.db?mode=rwc
+# OFFLINE=false                        # 'true' pour forcer SQLite
 ```
 
-> 💡 **Mode Standalone (Sans DB) :** Si `DATABASE_URL` n'est pas configuré ou si la base de données est injoignable, le serveur démarrera tout de même en mode dégradé (sans planter) afin de faciliter les tests de routage et de l'interface Swagger.
+### 2. Gestion des Bases de Données (PostgreSQL & SQLite)
 
-### 2. Lancement du serveur de développement
+L'API d'AzteaStock supporte à la fois **PostgreSQL** (idéal pour la production et le mode en ligne) et **SQLite** (conçu pour l'aspect hors-ligne).
+
+#### A. Mode Hors-Ligne (Offline)
+* **Forcer le mode hors-ligne** : Si vous définissez la variable d'environnement `OFFLINE=true` ou `OFFLINE=1`, l'API pointera directement et exclusivement sur la base de données SQLite locale définie par `SQLITE_DATABASE_URL`.
+* **Tolérance aux pannes (Bascule automatique)** : Si l'API est configurée pour utiliser PostgreSQL mais que ce dernier est injoignable lors de l'initialisation, le serveur ne plante pas. Il émet un avertissement dans les logs et bascule automatiquement les requêtes sur la base SQLite locale.
+
+#### B. Choix de la Base en Développement
+En développement, vous pouvez choisir le type de base de données à utiliser :
+* **Rester sur SQLite** : Définissez `DB_TYPE=sqlite` dans votre fichier `.env`.
+* **Utiliser PostgreSQL** : Laissez `DB_TYPE=postgres` (ou omettez la variable) et renseignez votre `DATABASE_URL`.
+
+### 3. Lancement du serveur de développement
 Positionnez-vous dans le dossier `api/` et exécutez :
 
 ```bash

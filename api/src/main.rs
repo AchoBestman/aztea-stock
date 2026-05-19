@@ -13,7 +13,7 @@ mod models;
 mod routes;
 
 pub struct AppState {
-    pub db: Option<sqlx::PgPool>,
+    pub db: Option<sqlx::AnyPool>,
     pub config: config::Config,
 }
 
@@ -30,7 +30,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let config = config::Config::from_env()?;
-    let db = db::create_pool(&config.database_url).await;
+    let db = db::create_pool(&config).await;
 
     let state = Arc::new(AppState { db, config });
 

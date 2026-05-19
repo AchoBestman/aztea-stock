@@ -13,6 +13,9 @@ use crate::{create_app, AppState, config::Config};
 async fn test_health_check_endpoint() {
     let config = Config {
         database_url: None,
+        sqlite_database_url: "sqlite://:memory:".to_string(),
+        db_type: "postgres".to_string(),
+        offline: false,
         jwt_secret: "test_jwt_secret_123456_test_jwt_secret".to_string(),
         port: 8080,
         rust_log: "info".to_string(),
