@@ -17,6 +17,11 @@ pub mod sync;
         auth::login,
         products::list_products,
         products::get_product,
+        admin::list_roles,
+        admin::get_role,
+        admin::create_role,
+        admin::update_role,
+        admin::delete_role,
     ),
     components(
         schemas(
@@ -27,13 +32,18 @@ pub mod sync;
             products::Product,
             products::PaginatedMeta,
             products::PaginatedProductResponse,
+            admin::Role,
+            admin::CreateRolePayload,
+            admin::UpdateRolePayload,
+            admin::DeleteRoleResponse,
         )
     ),
     modifiers(&SecurityAddon),
     tags(
         (name = "Health", description = "Health check and diagnostics"),
         (name = "Auth", description = "Authentication endpoints"),
-        (name = "Products", description = "Product catalog management")
+        (name = "Products", description = "Product catalog management"),
+        (name = "Admin - Roles", description = "Tenant roles administration CRUD")
     )
 )]
 pub struct ApiDoc;

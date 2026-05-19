@@ -91,3 +91,65 @@ Le Swagger décrit précisément chaque endpoint :
      2. Cliquez sur le bouton **Authorize** en haut à droite de Swagger UI.
      3. Renseignez la valeur du token récupéré et validez.
      4. Vous pouvez désormais tester l'ensemble des routes protégées directement depuis l'interface.
+
+---
+
+## 🗄️ Gestion de la Base de Données (Migrations & Seeds)
+
+Le projet inclut un outil en ligne de commande (CLI) interne pour gérer les opérations de base de données sans dépendance externe.
+
+### 1. Commandes du CLI interne (`cargo run --bin db`)
+
+Exécutez ces commandes depuis le dossier `api/` :
+
+* **Initialisation complète (Fresh + Migrate + Seed)** :
+  ```bash
+  cargo run --bin db setup
+  ```
+  *Cette commande vide la base de données, applique toutes les migrations et insère les données initiales (seeds).*
+
+* **Appliquer les migrations** :
+  ```bash
+  cargo run --bin db migrate
+  ```
+
+* **Annuler la dernière migration (Rollback)** :
+  ```bash
+  cargo run --bin db rollback
+  ```
+
+* **Réinitialiser la base de données (Fresh DB)** :
+  ```bash
+  cargo run --bin db fresh
+  ```
+  *Supprime toutes les tables de la base de données actuelle.*
+
+* **Lancer les seeds** :
+  ```bash
+  cargo run --bin db seed
+  ```
+  *Insère le tenant système ("Aztea Software"), les permissions regroupées par modèle, les rôles par défaut et le compte Super Administrateur.*
+
+### 2. Générer un nouveau fichier de migration
+
+Pour créer un nouveau fichier de migration réversible (Up & Down), vous pouvez utiliser l'outil officiel de SQLx (`sqlx-cli`) :
+
+```bash
+# Installer sqlx-cli si nécessaire
+cargo install sqlx-cli --no-default-features --features native-tls,postgres,sqlite
+
+# Générer une migration réversible
+sqlx migrate add -r <nom_de_la_migration>
+```
+Cela générera deux fichiers dans le dossier `api/migrations/` :
+1. `<timestamp>_<nom>.up.sql` (pour appliquer les modifications)
+2. `<timestamp>_<nom>.down.sql` (pour les annuler en cas de rollback)
+
+### 3. Base de données de test vs Base de données réelle
+
+La base de données de test est **totalement séparée** de votre base de données réelle de développement pour éviter toute corruption ou perte de données.
+
+* **Bases de développement** : configurées par `DATABASE_URL` (PostgreSQL) et `SQLITE_DATABASE_URL` (SQLite).
+* **Bases de test (`cargo test`)** :
+  * Pour SQLite, les tests s'exécutent sur une base SQLite isolée définie par `TEST_SQLITE_DATABASE_URL` (par défaut `sqlite://aztea-stock-test.db?mode=rwc` ou `:memory:` selon la configuration du test).
+  * Pour PostgreSQL, les tests s'exécutent sur la base définie par `TEST_DATABASE_URL` (ex : `postgres://postgres:password@localhost:5432/azteastock_test`).

@@ -30,3 +30,6 @@ Cargo.lock
 .env.test.local
 .env.production.local
 *.env
+
+# Databases
+*.db
