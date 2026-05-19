@@ -3,7 +3,6 @@ use axum::{
     http::{Request, StatusCode},
     routing::get,
     Router,
-    Json,
 };
 use http_body_util::BodyExt;
 use tower::ServiceExt;

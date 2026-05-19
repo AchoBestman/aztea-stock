@@ -11,7 +11,8 @@ use crate::{
         update_role_dto::UpdateRolePayload,
         response_role_dto::{RoleResponse, DeleteRoleResponse}
     },
-    services::role_service::RoleService
+    services::role_service::RoleService,
+    utils::auth::require_permission,
 };
 
 #[utoipa::path(
@@ -33,6 +34,8 @@ pub async fn list_roles(
     let db = state.db.as_ref().ok_or_else(|| {
         ApiError::Internal("La base de données n'est pas disponible".to_string())
     })?;
+
+    require_permission(db, &claims.sub, "can_read_role").await?;
 
     let roles = RoleService::list_roles(db, &claims.tenant_id).await?;
     Ok(Json(roles))
@@ -62,6 +65,8 @@ pub async fn get_role(
     let db = state.db.as_ref().ok_or_else(|| {
         ApiError::Internal("La base de données n'est pas disponible".to_string())
     })?;
+
+    require_permission(db, &claims.sub, "can_read_role").await?;
 
     let role = RoleService::get_role(db, &id, &claims.tenant_id).await?;
     Ok(Json(role))
@@ -93,6 +98,8 @@ pub async fn create_role(
     let db = state.db.as_ref().ok_or_else(|| {
         ApiError::Internal("La base de données n'est pas disponible".to_string())
     })?;
+
+    require_permission(db, &claims.sub, "can_create_role").await?;
 
     let role = RoleService::create_role(db, &claims.tenant_id, payload).await?;
     Ok(Json(role))
@@ -130,6 +137,8 @@ pub async fn update_role(
         ApiError::Internal("La base de données n'est pas disponible".to_string())
     })?;
 
+    require_permission(db, &claims.sub, "can_update_role").await?;
+
     let role = RoleService::update_role(db, &id, &claims.tenant_id, payload).await?;
     Ok(Json(role))
 }
@@ -158,6 +167,8 @@ pub async fn delete_role(
     let db = state.db.as_ref().ok_or_else(|| {
         ApiError::Internal("La base de données n'est pas disponible".to_string())
     })?;
+
+    require_permission(db, &claims.sub, "can_delete_role").await?;
 
     let response = RoleService::delete_role(db, &id, &claims.tenant_id).await?;
     Ok(Json(response))

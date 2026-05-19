@@ -113,6 +113,20 @@ impl RoleService {
         id: &str,
         tenant_id: &str,
     ) -> Result<DeleteRoleResponse, ApiError> {
+        use crate::models::user_role;
+        use sea_orm::{EntityTrait, QueryFilter, ColumnTrait, PaginatorTrait};
+
+        let user_role_count = user_role::Entity::find()
+            .filter(user_role::Column::RoleId.eq(id))
+            .count(db)
+            .await?;
+
+        if user_role_count > 0 {
+            return Err(ApiError::BadRequest(
+                "Ce rôle ne peut pas être supprimé car il est actuellement attribué à un ou plusieurs utilisateurs.".to_string()
+            ));
+        }
+
         let result = RoleRepository::delete(db, id, tenant_id).await?;
         if result.rows_affected == 0 {
             return Err(ApiError::NotFound("Rôle introuvable".to_string()));
