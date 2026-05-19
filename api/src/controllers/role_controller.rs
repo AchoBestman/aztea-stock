@@ -186,3 +186,59 @@ pub async fn delete_role(
     let response = RoleService::delete_role(db, &id, &claims.tenant_id).await?;
     Ok(Json(response))
 }
+
+#[derive(serde::Deserialize, utoipa::ToSchema, Clone, Debug)]
+pub struct AssignRolePermissionsPayload {
+    /// Liste des identifiants uniques des permissions à assigner
+    pub permission_ids: Vec<String>,
+}
+
+#[derive(serde::Serialize, utoipa::ToSchema, Clone, Debug)]
+pub struct AssignRolePermissionsResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/roles/{id}/permissions",
+    params(
+        ("id" = String, Path, description = "Identifiant unique du rôle")
+    ),
+    request_body(
+        content = AssignRolePermissionsPayload,
+        description = "Identifiants des permissions à synchroniser",
+        content_type = "application/json"
+    ),
+    responses(
+        (status = 200, description = "Permissions synchronisées avec succès.", body = AssignRolePermissionsResponse),
+        (status = 400, description = "Format de requête invalide ou identifiant de permission inexistant."),
+        (status = 401, description = "Authentification requise."),
+        (status = 403, description = "Permissions insuffisantes.")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    tag = "Admin - Roles"
+)]
+pub async fn assign_role_permissions(
+    Path(role_id): Path<String>,
+    Extension(claims): Extension<Claims>,
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<AssignRolePermissionsPayload>,
+) -> Result<Json<AssignRolePermissionsResponse>, ApiError> {
+    let db = state.db.as_ref().ok_or_else(|| {
+        ApiError::Internal("La base de données n'est pas disponible".to_string())
+    })?;
+
+    // 1. Guard: require can_update_role permission
+    require_permission(db, &claims.sub, "can_update_role").await?;
+
+    // 2. Perform synchronization
+    RoleService::sync_role_permissions(db, &role_id, &claims.tenant_id, payload.permission_ids).await?;
+
+    Ok(Json(AssignRolePermissionsResponse {
+        success: true,
+        message: "Permissions du rôle synchronisées avec succès.".to_string(),
+    }))
+}

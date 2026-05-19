@@ -5,7 +5,7 @@ use axum::{
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 use std::sync::Arc;
-use serde_json::Value;
+use serde_json::{Value, json};
 use sea_orm::{Statement, DatabaseBackend, ConnectionTrait};
 use jsonwebtoken::{encode, Header, EncodingKey};
 
@@ -252,4 +252,177 @@ async fn test_non_system_tenant_forbidden_from_other_tenant_role() {
     
     // Non-system user must be blocked with Unauthorized (401)
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_super_admin_role_restrictions() {
+    let db = setup_test_db().await;
+    
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO tenants (id, name, business_type, email, is_system) VALUES ('tenant-1', 'My Tenant', 'pharmacy', 'own@tenant.com', 1)".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO roles (id, tenant_id, name, description) VALUES ('role-1', 'tenant-1', 'admin', 'Tenant admin')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO roles (id, tenant_id, name, description) VALUES ('super-admin-role', 'tenant-1', 'Super Admin', 'Supreme Admin')".to_string())).await.unwrap();
+    
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO permissions (id, name, description, model_group) VALUES ('p-create', 'can_create_role', 'Create', 'roles')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO permissions (id, name, description, model_group) VALUES ('p-update', 'can_update_role', 'Update', 'roles')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO permissions (id, name, description, model_group) VALUES ('p-delete', 'can_delete_role', 'Delete', 'roles')".to_string())).await.unwrap();
+    
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO role_permissions (role_id, permission_id) VALUES ('role-1', 'p-create')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO role_permissions (role_id, permission_id) VALUES ('role-1', 'p-update')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO role_permissions (role_id, permission_id) VALUES ('role-1', 'p-delete')".to_string())).await.unwrap();
+    
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO users (id, tenant_id, name, email, password_hash, is_active) VALUES ('user-1', 'tenant-1', 'User Admin', 'admin@tenant.com', 'hash', 1)".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO user_roles (user_id, role_id) VALUES ('user-1', 'role-1')".to_string())).await.unwrap();
+
+    let config = Config::default();
+    let state = Arc::new(AppState { db: Some(db), config: config.clone() });
+    let app = create_app(state);
+    let token = create_token("user-1", "tenant-1", "admin", &config.jwt_secret);
+
+    // 1. Refuse creating a role with name 'Super Admin'
+    let create_payload = json!({
+        "name": "Super Admin",
+        "description": "API-created Super Admin role"
+    });
+
+    let res_create = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/admin/roles")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&create_payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_create.status(), StatusCode::BAD_REQUEST);
+
+    // 2. Refuse renaming an existing role to 'Super Admin'
+    let update_payload = json!({
+        "name": "Super Admin",
+        "description": "Rename to super admin"
+    });
+
+    let res_rename = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/admin/roles/role-1")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&update_payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_rename.status(), StatusCode::BAD_REQUEST);
+
+    // 3. Refuse modifying the seeded 'Super Admin' role
+    let res_modify_sa = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/admin/roles/super-admin-role")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&json!({"name": "Another Name"})).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_modify_sa.status(), StatusCode::BAD_REQUEST);
+
+    // 4. Refuse deleting the seeded 'Super Admin' role
+    let res_delete_sa = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/v1/admin/roles/super-admin-role")
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_delete_sa.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_assign_role_permissions_success_and_errors() {
+    let db = setup_test_db().await;
+    
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO tenants (id, name, business_type, email, is_system) VALUES ('tenant-1', 'My Tenant', 'pharmacy', 'own@tenant.com', 1)".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO roles (id, tenant_id, name, description) VALUES ('role-1', 'tenant-1', 'admin', 'Tenant admin')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO roles (id, tenant_id, name, description) VALUES ('role-target', 'tenant-1', 'cashier', 'Tenant cashier')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO roles (id, tenant_id, name, description) VALUES ('super-admin-role', 'tenant-1', 'Super Admin', 'Supreme')".to_string())).await.unwrap();
+    
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO permissions (id, name, description, model_group) VALUES ('p-read', 'can_read_role', 'Read', 'roles')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO permissions (id, name, description, model_group) VALUES ('p-update', 'can_update_role', 'Update', 'roles')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO permissions (id, name, description, model_group) VALUES ('perm-sale-1', 'can_create_sale', 'Create Sales', 'sales')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO permissions (id, name, description, model_group) VALUES ('perm-sale-2', 'can_read_sale', 'Read Sales', 'sales')".to_string())).await.unwrap();
+    
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO role_permissions (role_id, permission_id) VALUES ('role-1', 'p-read')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO role_permissions (role_id, permission_id) VALUES ('role-1', 'p-update')".to_string())).await.unwrap();
+    
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO users (id, tenant_id, name, email, password_hash, is_active) VALUES ('user-1', 'tenant-1', 'User Admin', 'admin@tenant.com', 'hash', 1)".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO user_roles (user_id, role_id) VALUES ('user-1', 'role-1')".to_string())).await.unwrap();
+
+    let config = Config::default();
+    let state = Arc::new(AppState { db: Some(db), config: config.clone() });
+    let app = create_app(state);
+    let token = create_token("user-1", "tenant-1", "admin", &config.jwt_secret);
+
+    // 1. Success: sync permissions to role-target
+    let assign_payload = json!({
+        "permission_ids": vec!["perm-sale-1", "perm-sale-2"]
+    });
+
+    let res_assign = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/admin/roles/role-target/permissions")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&assign_payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_assign.status(), StatusCode::OK);
+
+    // 2. Refuse sync if one or more permissions are invalid/non-existent
+    let bad_assign_payload = json!({
+        "permission_ids": vec!["perm-sale-1", "invalid-permission-id"]
+    });
+
+    let res_bad_assign = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/admin/roles/role-target/permissions")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&bad_assign_payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_bad_assign.status(), StatusCode::BAD_REQUEST);
+
+    // 3. Refuse sync for the seeded 'Super Admin' role
+    let res_sa_assign = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/admin/roles/super-admin-role/permissions")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&assign_payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_sa_assign.status(), StatusCode::BAD_REQUEST);
 }
