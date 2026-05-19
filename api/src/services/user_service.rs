@@ -28,12 +28,28 @@ impl UserService {
 
     pub async fn create_user(
         state: &AppState,
-        tenant_id: &str,
+        caller_tenant_id: &str,
         payload: CreateUserPayload,
     ) -> Result<UserResponse, ApiError> {
         let db = state.db.as_ref().ok_or_else(|| {
             ApiError::Internal("Base de données indisponible".to_string())
         })?;
+
+        // Resolve target tenant
+        let mut target_tenant_id = caller_tenant_id.to_string();
+        if let Some(requested_tenant) = &payload.tenant_id {
+            use sea_orm::EntityTrait;
+            let caller_tenant = crate::models::tenant::Entity::find_by_id(caller_tenant_id)
+                .one(db)
+                .await?
+                .ok_or_else(|| ApiError::Unauthorized("Tenant introuvable".to_string()))?;
+
+            if caller_tenant.is_system {
+                target_tenant_id = requested_tenant.clone();
+            } else {
+                return Err(ApiError::Forbidden("Seul le tenant système peut spécifier un tenant_id".to_string()));
+            }
+        }
 
         // 1. Check if user already exists
         if UserRepository::find_by_email(db, &payload.email).await?.is_some() {
@@ -52,7 +68,7 @@ impl UserService {
         let mut user = UserRepository::create(
             db,
             &user_id,
-            tenant_id,
+            &target_tenant_id,
             &payload.name,
             &payload.email,
             &password_hash,
@@ -75,7 +91,7 @@ impl UserService {
         let user = UserRepository::update(db, user).await?;
 
         // 6. Send invitation/password reset email
-        let _ = send_password_reset_email(state, tenant_id, &payload.email, &code).await;
+        let _ = send_password_reset_email(state, &target_tenant_id, &payload.email, &code).await;
 
         let roles = UserRepository::get_user_roles(db, &user.id).await?;
         Ok(Self::map_to_response(user, roles))

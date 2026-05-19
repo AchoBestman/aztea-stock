@@ -6,6 +6,7 @@ pub struct CreateUserPayload {
     pub name: String,
     pub email: String,
     pub role_id: String,
+    pub tenant_id: Option<String>,
 }
 
 #[derive(Deserialize, ToSchema, Clone, Debug)]
