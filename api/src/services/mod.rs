@@ -3,3 +3,5 @@ pub mod email_service;
 pub mod tenant_service;
 pub mod user_service;
 pub mod permission_service;
+pub mod subscription_service;
+pub mod license_service;

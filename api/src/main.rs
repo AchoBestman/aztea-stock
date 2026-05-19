@@ -62,10 +62,12 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .nest("/api/v1/stock", routes::stock::router())
         .nest("/api/v1/sync", routes::sync::router())
         .nest("/api/v1/reports", routes::reports::router())
-        .nest("/api/v1/subscriptions", routes::subscriptions::router())
+        .nest("/api/v1/licenses", routes::licenses::public_router())
         .nest("/api/v1/admin", routes::role_routes::router()
             .merge(routes::tenant_routes::router())
-            .merge(routes::user_routes::router()))
+            .merge(routes::user_routes::router())
+            .merge(routes::subscriptions::admin_router())
+            .merge(routes::licenses::admin_router()))
         .layer(axum::middleware::from_fn_with_state(state.clone(), middleware::auth::extract_tenant));
 
     // ── Internal routes — NOT under JWT middleware (secured by x-internal-secret) ──

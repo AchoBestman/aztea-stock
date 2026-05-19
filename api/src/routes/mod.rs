@@ -12,6 +12,7 @@ pub mod sales;
 pub mod stock;
 pub mod subscriptions;
 pub mod sync;
+pub mod licenses;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -42,6 +43,11 @@ pub mod sync;
         crate::controllers::user_controller::list_users,
         crate::controllers::user_controller::create_user,
         crate::controllers::user_controller::set_user_two_factor,
+        crate::controllers::subscription_controller::create_subscription,
+        crate::controllers::subscription_controller::list_tenant_subscriptions,
+        crate::controllers::license_controller::generate_license,
+        crate::controllers::license_controller::list_tenant_licenses,
+        crate::controllers::license_controller::activate_license,
         crate::controllers::user_controller::set_user_password,
         crate::controllers::user_controller::send_user_reset,
     ),
@@ -77,6 +83,12 @@ pub mod sync;
             auth::ForgotPasswordPayload,
             auth::ResetPasswordPayload,
             auth::VerifyOtpPayload,
+            crate::dtos::subscription_dto::CreateSubscriptionPayload,
+            crate::dtos::subscription_dto::SubscriptionResponse,
+            crate::dtos::license_dto::GenerateLicensePayload,
+            crate::dtos::license_dto::ActivateLicensePayload,
+            crate::dtos::license_dto::LicenseResponse,
+            crate::dtos::license_dto::FullLicenseResponse,
         )
     ),
     modifiers(&SecurityAddon),
