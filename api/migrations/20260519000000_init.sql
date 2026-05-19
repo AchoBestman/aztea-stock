@@ -1,9 +1,17 @@
 -- Up migration
 CREATE TABLE tenants (
     id VARCHAR(36) PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+    name VARCHAR(255) NOT NULL,
+    business_type VARCHAR(50) NOT NULL CHECK (business_type IN ('pharmacy','supermarket','both')),
+    email VARCHAR(255) UNIQUE NOT NULL,
+    phone VARCHAR(50),
+    address TEXT,
+    country VARCHAR(100) DEFAULT 'CG',
+    timezone VARCHAR(100) DEFAULT 'Africa/Brazzaville',
+    logo_url TEXT,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
 CREATE TABLE permissions (

@@ -169,16 +169,20 @@ async fn run_fresh(pool: &AnyPool, config: &config::Config) -> Result<(), anyhow
         sqlx::query("GRANT ALL ON SCHEMA public TO public").execute(pool).await?;
     } else {
         println!("Dropping SQLite database tables...");
-        // Disable foreign keys checks to avoid dependency drop issues
+        // Disable foreign keys checks
         sqlx::query("PRAGMA foreign_keys = OFF;").execute(pool).await?;
         
-        let tables: Vec<(String,)> = sqlx::query_as(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != 'sqlite_sequence'"
-        )
-        .fetch_all(pool)
-        .await?;
+        let tables_to_drop = vec![
+            "role_permissions",
+            "user_roles",
+            "users",
+            "roles",
+            "permissions",
+            "tenants",
+            "_sqlx_migrations",
+        ];
         
-        for (table,) in tables {
+        for table in tables_to_drop {
             sqlx::query(&format!("DROP TABLE IF EXISTS {}", table)).execute(pool).await?;
         }
         
@@ -194,12 +198,26 @@ async fn run_seeds(pool: &AnyPool) -> Result<(), anyhow::Error> {
 
     // 1. Create System Tenant
     let tenant_id = Uuid::new_v4().to_string();
-    let tenant_name = "Aztea Software (Système)";
-    sqlx::query("INSERT INTO tenants (id, name) VALUES ($1, $2)")
-        .bind(&tenant_id)
-        .bind(tenant_name)
-        .execute(pool)
-        .await?;
+    let tenant_name = env::var("SYSTEM_TENANT_NAME")
+        .unwrap_or_else(|_| "Aztea Software (Système)".to_string());
+    let tenant_business_type = env::var("SYSTEM_TENANT_BUSINESS_TYPE")
+        .unwrap_or_else(|_| "both".to_string());
+    let tenant_email = env::var("SYSTEM_TENANT_EMAIL")
+        .unwrap_or_else(|_| "contact@aztea.com".to_string());
+    let tenant_phone = env::var("SYSTEM_TENANT_PHONE").ok();
+    let tenant_address = env::var("SYSTEM_TENANT_ADDRESS").ok();
+
+    sqlx::query(
+        "INSERT INTO tenants (id, name, business_type, email, phone, address) VALUES ($1, $2, $3, $4, $5, $6)"
+    )
+    .bind(&tenant_id)
+    .bind(&tenant_name)
+    .bind(&tenant_business_type)
+    .bind(&tenant_email)
+    .bind(tenant_phone)
+    .bind(tenant_address)
+    .execute(pool)
+    .await?;
     println!("Created system tenant: {}", tenant_name);
 
     // 2. Create Permissions
