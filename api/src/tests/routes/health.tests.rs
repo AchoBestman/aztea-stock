@@ -19,6 +19,7 @@ async fn test_health_check_endpoint() {
         jwt_secret: "test_jwt_secret_123456_test_jwt_secret".to_string(),
         port: 8080,
         rust_log: "info".to_string(),
+        ..Config::default()
     };
     let state = Arc::new(AppState { db: None, config });
     let app = create_app(state);

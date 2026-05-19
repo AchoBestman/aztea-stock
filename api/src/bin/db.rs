@@ -259,6 +259,15 @@ async fn run_seeds(pool: &AnyPool) -> Result<(), anyhow::Error> {
         ("can_read_tenant", "Permet de lire les tenants", "tenants"),
         ("can_update_tenant", "Permet de modifier les tenants", "tenants"),
         ("can_delete_tenant", "Permet de supprimer les tenants", "tenants"),
+        ("can_set_tenant_two_factor", "Permet de configurer le Two Factor d'un tenant", "tenants"),
+        // Users
+        ("can_create_user", "Permet d'ajouter un utilisateur", "users"),
+        ("can_read_user", "Permet de voir les utilisateurs", "users"),
+        ("can_update_user", "Permet de modifier un utilisateur", "users"),
+        ("can_delete_user", "Permet de supprimer un utilisateur", "users"),
+        ("can_manage_tenant_users", "Permet de gérer les comptes utilisateurs d'un tenant", "users"),
+        ("can_send_tenant_password_reset", "Permet d'envoyer un email de réinitialisation de mot de passe", "users"),
+        ("can_set_tenant_password", "Permet de définir le mot de passe d'un utilisateur", "users"),
     ];
 
     let mut permission_ids = Vec::new();

@@ -12,6 +12,9 @@ pub struct Model {
     pub pin_hash: Option<String>,
     pub is_active: Option<bool>,
     pub last_login: Option<DateTimeWithTimeZone>,
+    pub two_factor_enabled: bool,
+    pub two_factor_code: Option<String>,
+    pub two_factor_expires_at: Option<DateTimeWithTimeZone>,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
 }

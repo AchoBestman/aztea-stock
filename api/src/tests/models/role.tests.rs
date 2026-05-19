@@ -24,6 +24,10 @@ async fn test_role_model_crud() {
             logo_url TEXT,
             is_active BOOLEAN DEFAULT true,
             is_system BOOLEAN DEFAULT false NOT NULL,
+            two_factor_enabled BOOLEAN DEFAULT false NOT NULL,
+            sender_email TEXT,
+            sender_user TEXT,
+            sender_password TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
         );

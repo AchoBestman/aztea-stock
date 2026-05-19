@@ -43,6 +43,7 @@ fn setup_auth_test_app(secret: String) -> Router {
         jwt_secret: secret,
         port: 8080,
         rust_log: "info".to_string(),
+        ..Config::default()
     };
     let state = Arc::new(AppState { db: None, config });
 

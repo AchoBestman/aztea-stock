@@ -29,6 +29,10 @@ async fn test_login_success() {
             logo_url TEXT,
             is_active BOOLEAN DEFAULT true,
             is_system BOOLEAN DEFAULT false NOT NULL,
+            two_factor_enabled BOOLEAN DEFAULT false NOT NULL,
+            sender_email TEXT,
+            sender_user TEXT,
+            sender_password TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
         );
@@ -57,6 +61,9 @@ async fn test_login_success() {
             pin_hash VARCHAR(255),
             is_active BOOLEAN DEFAULT true,
             last_login TIMESTAMPTZ,
+            two_factor_enabled BOOLEAN DEFAULT false NOT NULL,
+            two_factor_code VARCHAR(10),
+            two_factor_expires_at TIMESTAMPTZ,
             created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
             updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
             FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
@@ -115,6 +122,7 @@ async fn test_login_success() {
         jwt_secret: "test_jwt_secret_123456_test_jwt_secret".to_string(),
         port: 8080,
         rust_log: "info".to_string(),
+        ..Config::default()
     };
     
     let state = Arc::new(AppState { db: Some(db), config });

@@ -15,6 +15,13 @@ pub struct Model {
     pub logo_url: Option<String>,
     pub is_active: Option<bool>,
     pub is_system: bool,
+    pub two_factor_enabled: bool,
+    /// Display/from email address for outgoing emails
+    pub sender_email: Option<String>,
+    /// SMTP login username — stored AES-256-CBC encrypted
+    pub sender_user: Option<String>,
+    /// SMTP password — stored AES-256-CBC encrypted
+    pub sender_password: Option<String>,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
 }

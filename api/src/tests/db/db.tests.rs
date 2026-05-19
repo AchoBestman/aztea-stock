@@ -12,6 +12,7 @@ async fn test_create_pool_none() {
         jwt_secret: "secret".to_string(),
         port: 8080,
         rust_log: "info".to_string(),
+        ..Config::default()
     };
     let conn: Option<DatabaseConnection> = create_connection(&config).await;
     assert!(conn.is_none());
@@ -27,6 +28,7 @@ async fn test_create_pool_invalid_url() {
         jwt_secret: "secret".to_string(),
         port: 8080,
         rust_log: "info".to_string(),
+        ..Config::default()
     };
     let conn: Option<DatabaseConnection> = create_connection(&config).await;
     assert!(conn.is_none());

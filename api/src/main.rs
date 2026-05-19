@@ -16,6 +16,7 @@ pub mod repositories;
 pub mod services;
 pub mod dtos;
 pub mod schemas;
+pub mod utils;
 
 pub struct AppState {
     pub db: Option<sea_orm::DatabaseConnection>,
@@ -38,6 +39,9 @@ async fn main() -> anyhow::Result<()> {
     let db = database::create_connection(&config).await;
 
     let state = Arc::new(AppState { db, config });
+
+    // Start background email queue worker
+    services::email_service::start_email_worker(state.clone());
 
     let app = create_app(state.clone());
 
