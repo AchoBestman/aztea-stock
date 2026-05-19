@@ -1,10 +1,15 @@
-use axum::{routing::post, Json, Router};
+use axum::{routing::{post, get}, Json, Router, Extension, extract::State};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use sea_orm::{EntityTrait, QueryFilter, ColumnTrait};
 use jsonwebtoken::{encode, Header, EncodingKey};
+use std::sync::Arc;
 
 use crate::errors::ApiError;
+use crate::AppState;
+use crate::middleware::auth::Claims;
+use crate::services::user_service::UserService;
+use crate::dtos::user_dto::{UserProfileResponse, UpdateProfilePayload};
 use crate::models::{user, tenant, role, permission, user_role, role_permission};
 
 #[derive(Deserialize, ToSchema)]
@@ -13,6 +18,18 @@ pub struct LoginPayload {
     pub email: String,
     /// User password
     pub password: String,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct ForgotPasswordPayload {
+    pub email: String,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct ResetPasswordPayload {
+    pub email: String,
+    pub otp_code: String,
+    pub new_password: String,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -164,6 +181,121 @@ pub async fn login(
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/auth/profile",
+    responses(
+        (status = 200, description = "Profil de l'utilisateur connecté récupéré avec succès.", body = UserProfileResponse),
+        (status = 401, description = "Authentification requise.")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    tag = "Auth"
+)]
+pub async fn get_profile(
+    Extension(claims): Extension<Claims>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<UserProfileResponse>, ApiError> {
+    let db = state.db.as_ref().ok_or_else(|| {
+        ApiError::Internal("La base de données n'est pas disponible".to_string())
+    })?;
+
+    let profile = UserService::get_profile(db, &claims.sub).await?;
+    Ok(Json(profile))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/auth/profile",
+    request_body(
+        content = UpdateProfilePayload,
+        description = "Champs pour modifier le profil",
+        content_type = "application/json"
+    ),
+    responses(
+        (status = 200, description = "Profil mis à jour avec succès.", body = UserProfileResponse),
+        (status = 400, description = "Requête invalide."),
+        (status = 401, description = "Authentification requise."),
+        (status = 403, description = "Permissions insuffisantes.")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    tag = "Auth"
+)]
+pub async fn update_profile(
+    Extension(claims): Extension<Claims>,
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<UpdateProfilePayload>,
+) -> Result<Json<UserProfileResponse>, ApiError> {
+    let db = state.db.as_ref().ok_or_else(|| {
+        ApiError::Internal("La base de données n'est pas disponible".to_string())
+    })?;
+
+    let profile = UserService::update_profile(db, &claims.sub, &claims.tenant_id, payload).await?;
+    Ok(Json(profile))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/forgot-password",
+    request_body(
+        content = ForgotPasswordPayload,
+        description = "Email pour demander la réinitialisation",
+        content_type = "application/json"
+    ),
+    responses(
+        (status = 200, description = "Code envoyé par email avec succès."),
+        (status = 404, description = "Utilisateur introuvable.")
+    ),
+    tag = "Auth"
+)]
+pub async fn forgot_password(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<ForgotPasswordPayload>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    UserService::send_public_password_reset(&state, &payload.email).await?;
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": "Email de réinitialisation envoyé avec succès."
+    })))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/reset-password",
+    request_body(
+        content = ResetPasswordPayload,
+        description = "Email, code OTP et nouveau mot de passe",
+        content_type = "application/json"
+    ),
+    responses(
+        (status = 200, description = "Mot de passe réinitialisé avec succès."),
+        (status = 400, description = "Requête invalide ou code OTP expiré."),
+        (status = 404, description = "Utilisateur introuvable.")
+    ),
+    tag = "Auth"
+)]
+pub async fn reset_password(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<ResetPasswordPayload>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let db = state.db.as_ref().ok_or_else(|| {
+        ApiError::Internal("La base de données n'est pas disponible".to_string())
+    })?;
+
+    UserService::public_reset_password(db, &payload.email, &payload.otp_code, &payload.new_password).await?;
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": "Mot de passe réinitialisé avec succès."
+    })))
+}
+
 pub fn router() -> Router<std::sync::Arc<crate::AppState>> {
-    Router::new().route("/login", post(login))
+    Router::new()
+        .route("/login", post(login))
+        .route("/profile", get(get_profile).put(update_profile))
+        .route("/forgot-password", post(forgot_password))
+        .route("/reset-password", post(reset_password))
 }

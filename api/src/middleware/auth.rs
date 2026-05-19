@@ -24,7 +24,7 @@ pub async fn extract_tenant(
 ) -> Result<Response, StatusCode> {
     let path = req.uri().path();
     // Allow public endpoints to skip authentication
-    if path.starts_with("/api/v1/auth/") 
+    if (path.starts_with("/api/v1/auth/") && !path.starts_with("/api/v1/auth/profile"))
         || path.starts_with("/api/v1/health") 
         || path.starts_with("/api/v1/license/verify")
         || path.starts_with("/swagger-ui")

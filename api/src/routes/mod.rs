@@ -18,6 +18,10 @@ pub mod sync;
     paths(
         health::health_check,
         auth::login,
+        auth::get_profile,
+        auth::update_profile,
+        auth::forgot_password,
+        auth::reset_password,
         products::list_products,
         products::get_product,
         crate::controllers::role_controller::list_roles,
@@ -66,6 +70,11 @@ pub mod sync;
             crate::dtos::user_dto::SetUserPasswordPayload,
             crate::dtos::user_dto::SendPasswordResetPayload,
             crate::dtos::user_dto::UserResponse,
+            crate::dtos::user_dto::UserProfileTenantResponse,
+            crate::dtos::user_dto::UserProfileResponse,
+            crate::dtos::user_dto::UpdateProfilePayload,
+            auth::ForgotPasswordPayload,
+            auth::ResetPasswordPayload,
         )
     ),
     modifiers(&SecurityAddon),
