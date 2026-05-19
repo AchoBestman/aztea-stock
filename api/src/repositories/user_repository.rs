@@ -81,8 +81,21 @@ impl UserRepository {
         db: &DatabaseConnection,
         model: user::Model,
     ) -> Result<user::Model, DbErr> {
-        let mut active_model: user::ActiveModel = model.into();
-        active_model.updated_at = Set(chrono::Utc::now().fixed_offset());
+        let active_model = user::ActiveModel {
+            id: Set(model.id),
+            tenant_id: Set(model.tenant_id),
+            name: Set(model.name),
+            email: Set(model.email),
+            password_hash: Set(model.password_hash),
+            pin_hash: Set(model.pin_hash),
+            is_active: Set(model.is_active),
+            last_login: Set(model.last_login),
+            two_factor_enabled: Set(model.two_factor_enabled),
+            two_factor_code: Set(model.two_factor_code),
+            two_factor_expires_at: Set(model.two_factor_expires_at),
+            created_at: Set(model.created_at),
+            updated_at: Set(chrono::Utc::now().fixed_offset()),
+        };
         active_model.update(db).await
     }
 
