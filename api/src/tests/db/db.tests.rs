@@ -1,5 +1,6 @@
-use crate::db::create_pool;
+use crate::database::create_connection;
 use crate::config::Config;
+use sea_orm::DatabaseConnection;
 
 #[tokio::test]
 async fn test_create_pool_none() {
@@ -12,8 +13,8 @@ async fn test_create_pool_none() {
         port: 8080,
         rust_log: "info".to_string(),
     };
-    let pool = create_pool(&config).await;
-    assert!(pool.is_none());
+    let conn: Option<DatabaseConnection> = create_connection(&config).await;
+    assert!(conn.is_none());
 }
 
 #[tokio::test]
@@ -27,6 +28,6 @@ async fn test_create_pool_invalid_url() {
         port: 8080,
         rust_log: "info".to_string(),
     };
-    let pool = create_pool(&config).await;
-    assert!(pool.is_none());
+    let conn: Option<DatabaseConnection> = create_connection(&config).await;
+    assert!(conn.is_none());
 }

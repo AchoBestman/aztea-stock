@@ -22,6 +22,7 @@ dotenvy = "0.15"
 anyhow = "1"
 thiserror = "1"
 validator = { version = "0.18", features = ["derive"] }
+sea-orm = { version = "1.0", features = ["sqlx-postgres", "sqlx-sqlite", "runtime-tokio-rustls", "macros"] }
 
 # Swagger UI / OpenAPI documentation
 utoipa = { version = "4.2", features = ["axum_extras", "uuid", "chrono", "decimal"] }

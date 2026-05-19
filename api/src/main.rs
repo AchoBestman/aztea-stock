@@ -6,15 +6,19 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 pub mod config;
-pub mod db;
+pub mod database;
 pub mod errors;
 pub mod middleware;
 pub mod models;
 pub mod controllers;
 pub mod routes;
+pub mod repositories;
+pub mod services;
+pub mod dtos;
+pub mod schemas;
 
 pub struct AppState {
-    pub db: Option<sqlx::AnyPool>,
+    pub db: Option<sea_orm::DatabaseConnection>,
     pub config: config::Config,
 }
 
@@ -31,7 +35,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let config = config::Config::from_env()?;
-    let db = db::create_pool(&config).await;
+    let db = database::create_connection(&config).await;
 
     let state = Arc::new(AppState { db, config });
 
@@ -55,7 +59,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .nest("/api/v1/sync", routes::sync::router())
         .nest("/api/v1/reports", routes::reports::router())
         .nest("/api/v1/subscriptions", routes::subscriptions::router())
-        .nest("/api/v1/admin", routes::admin::router())
+        .nest("/api/v1/admin", routes::role_routes::router())
         .layer(axum::middleware::from_fn_with_state(state.clone(), middleware::auth::extract_tenant))
         .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
         .layer(CompressionLayer::new())

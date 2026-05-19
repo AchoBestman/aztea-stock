@@ -6,8 +6,23 @@ use bcrypt::{hash, DEFAULT_COST};
 
 #[path = "../config.rs"]
 mod config;
-#[path = "../db.rs"]
-mod db;
+async fn create_pool(config: &config::Config) -> Option<AnyPool> {
+    let url = if config.offline || config.db_type == "sqlite" {
+        &config.sqlite_database_url
+    } else {
+        match &config.database_url {
+            Some(u) => u,
+            None => &config.sqlite_database_url
+        }
+    };
+    sqlx::any::install_default_drivers();
+    sqlx::any::AnyPoolOptions::new()
+        .max_connections(5)
+        .acquire_timeout(std::time::Duration::from_secs(3))
+        .connect(url)
+        .await
+        .ok()
+}
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
@@ -30,7 +45,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let command = args[1].as_str();
 
     let config = config::Config::from_env()?;
-    let pool = match db::create_pool(&config).await {
+    let pool = match create_pool(&config).await {
         Some(p) => p,
         None => {
             eprintln!("Error: Failed to connect to the database.");

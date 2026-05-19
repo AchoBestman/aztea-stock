@@ -6,14 +6,19 @@ use crate::{
     AppState,
     errors::ApiError,
     middleware::auth::Claims,
-    models::role::{Role, CreateRolePayload, UpdateRolePayload, DeleteRoleResponse}
+    dtos::{
+        create_role_dto::CreateRolePayload,
+        update_role_dto::UpdateRolePayload,
+        response_role_dto::{RoleResponse, DeleteRoleResponse}
+    },
+    services::role_service::RoleService
 };
 
 #[utoipa::path(
     get,
     path = "/api/v1/admin/roles",
     responses(
-        (status = 200, description = "Liste des rôles récupérée avec succès.", body = Vec<Role>),
+        (status = 200, description = "Liste des rôles récupérée avec succès.", body = Vec<RoleResponse>),
         (status = 401, description = "Authentification requise ou token JWT invalide.")
     ),
     security(
@@ -24,12 +29,12 @@ use crate::{
 pub async fn list_roles(
     Extension(claims): Extension<Claims>,
     State(state): State<Arc<AppState>>,
-) -> Result<Json<Vec<Role>>, ApiError> {
-    let pool = state.db.as_ref().ok_or_else(|| {
+) -> Result<Json<Vec<RoleResponse>>, ApiError> {
+    let db = state.db.as_ref().ok_or_else(|| {
         ApiError::Internal("La base de données n'est pas disponible".to_string())
     })?;
 
-    let roles = Role::list_by_tenant(pool, &claims.tenant_id).await?;
+    let roles = RoleService::list_roles(db, &claims.tenant_id).await?;
     Ok(Json(roles))
 }
 
@@ -40,7 +45,7 @@ pub async fn list_roles(
         ("id" = String, Path, description = "L'identifiant UUID du rôle")
     ),
     responses(
-        (status = 200, description = "Détails du rôle récupérés avec succès.", body = Role),
+        (status = 200, description = "Détails du rôle récupérés avec succès.", body = RoleResponse),
         (status = 401, description = "Authentification requise ou token JWT invalide."),
         (status = 404, description = "Rôle introuvable pour ce tenant.")
     ),
@@ -53,15 +58,12 @@ pub async fn get_role(
     Path(id): Path<String>,
     Extension(claims): Extension<Claims>,
     State(state): State<Arc<AppState>>,
-) -> Result<Json<Role>, ApiError> {
-    let pool = state.db.as_ref().ok_or_else(|| {
+) -> Result<Json<RoleResponse>, ApiError> {
+    let db = state.db.as_ref().ok_or_else(|| {
         ApiError::Internal("La base de données n'est pas disponible".to_string())
     })?;
 
-    let role = Role::find_by_id(pool, &claims.tenant_id, &id)
-        .await?
-        .ok_or_else(|| ApiError::NotFound("Rôle introuvable".to_string()))?;
-
+    let role = RoleService::get_role(db, &id, &claims.tenant_id).await?;
     Ok(Json(role))
 }
 
@@ -74,7 +76,7 @@ pub async fn get_role(
         content_type = "application/json"
     ),
     responses(
-        (status = 201, description = "Rôle créé avec succès.", body = Role),
+        (status = 201, description = "Rôle créé avec succès.", body = RoleResponse),
         (status = 400, description = "Requête invalide ou rôle déjà existant."),
         (status = 401, description = "Authentification requise ou token JWT invalide.")
     ),
@@ -87,22 +89,12 @@ pub async fn create_role(
     Extension(claims): Extension<Claims>,
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateRolePayload>,
-) -> Result<Json<Role>, ApiError> {
-    let pool = state.db.as_ref().ok_or_else(|| {
+) -> Result<Json<RoleResponse>, ApiError> {
+    let db = state.db.as_ref().ok_or_else(|| {
         ApiError::Internal("La base de données n'est pas disponible".to_string())
     })?;
 
-    if Role::exists_by_name(pool, &claims.tenant_id, &payload.name).await? {
-        return Err(ApiError::BadRequest("Un rôle avec ce nom existe déjà pour ce tenant.".to_string()));
-    }
-
-    let role = Role::create(
-        pool,
-        &claims.tenant_id,
-        &payload.name,
-        payload.description.as_deref()
-    ).await?;
-
+    let role = RoleService::create_role(db, &claims.tenant_id, payload).await?;
     Ok(Json(role))
 }
 
@@ -118,7 +110,7 @@ pub async fn create_role(
         content_type = "application/json"
     ),
     responses(
-        (status = 200, description = "Rôle modifié avec succès.", body = Role),
+        (status = 200, description = "Rôle modifié avec succès.", body = RoleResponse),
         (status = 400, description = "Requête invalide ou nom de rôle déjà pris."),
         (status = 401, description = "Authentification requise ou token JWT invalide."),
         (status = 404, description = "Rôle introuvable.")
@@ -133,27 +125,12 @@ pub async fn update_role(
     Extension(claims): Extension<Claims>,
     State(state): State<Arc<AppState>>,
     Json(payload): Json<UpdateRolePayload>,
-) -> Result<Json<Role>, ApiError> {
-    let pool = state.db.as_ref().ok_or_else(|| {
+) -> Result<Json<RoleResponse>, ApiError> {
+    let db = state.db.as_ref().ok_or_else(|| {
         ApiError::Internal("La base de données n'est pas disponible".to_string())
     })?;
 
-    if !Role::exists_by_id(pool, &claims.tenant_id, &id).await? {
-        return Err(ApiError::NotFound("Rôle introuvable".to_string()));
-    }
-
-    if Role::exists_by_name_exclude(pool, &claims.tenant_id, &payload.name, &id).await? {
-        return Err(ApiError::BadRequest("Un rôle avec ce nom existe déjà pour ce tenant.".to_string()));
-    }
-
-    let role = Role::update(
-        pool,
-        &id,
-        &claims.tenant_id,
-        &payload.name,
-        payload.description.as_deref()
-    ).await?;
-
+    let role = RoleService::update_role(db, &id, &claims.tenant_id, payload).await?;
     Ok(Json(role))
 }
 
@@ -178,17 +155,10 @@ pub async fn delete_role(
     Extension(claims): Extension<Claims>,
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<DeleteRoleResponse>, ApiError> {
-    let pool = state.db.as_ref().ok_or_else(|| {
+    let db = state.db.as_ref().ok_or_else(|| {
         ApiError::Internal("La base de données n'est pas disponible".to_string())
     })?;
 
-    let success = Role::delete(pool, &id, &claims.tenant_id).await?;
-    if !success {
-        return Err(ApiError::NotFound("Rôle introuvable".to_string()));
-    }
-
-    Ok(Json(DeleteRoleResponse {
-        success: true,
-        message: "Rôle supprimé avec succès.".to_string(),
-    }))
+    let response = RoleService::delete_role(db, &id, &claims.tenant_id).await?;
+    Ok(Json(response))
 }

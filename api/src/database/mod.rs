@@ -1,8 +1,9 @@
-use sqlx::{any::AnyPoolOptions, AnyPool};
+use sea_orm::{ConnectOptions, Database, DatabaseConnection};
+use std::time::Duration;
 use tracing::{info, warn};
 use crate::config::Config;
 
-pub async fn create_pool(config: &Config) -> Option<AnyPool> {
+pub async fn create_connection(config: &Config) -> Option<DatabaseConnection> {
     // 1. Force SQLite in offline mode
     if config.offline {
         info!("Offline mode active: connecting directly to SQLite database.");
@@ -24,16 +25,14 @@ pub async fn create_pool(config: &Config) -> Option<AnyPool> {
         }
     };
 
-    sqlx::any::install_default_drivers();
-    match AnyPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(3))
-        .connect(url)
-        .await
-    {
-        Ok(pool) => {
+    let mut opt = ConnectOptions::new(url.clone());
+    opt.max_connections(5)
+       .acquire_timeout(Duration::from_secs(3));
+
+    match Database::connect(opt).await {
+        Ok(conn) => {
             info!("Successfully connected to PostgreSQL database.");
-            Some(pool)
+            Some(conn)
         }
         Err(e) => {
             warn!("Failed to connect to PostgreSQL at {}: {}. Falling back to SQLite.", url, e);
@@ -42,17 +41,15 @@ pub async fn create_pool(config: &Config) -> Option<AnyPool> {
     }
 }
 
-async fn connect_sqlite(url: &str) -> Option<AnyPool> {
-    sqlx::any::install_default_drivers();
-    match AnyPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(3))
-        .connect(url)
-        .await
-    {
-        Ok(pool) => {
+async fn connect_sqlite(url: &str) -> Option<DatabaseConnection> {
+    let mut opt = ConnectOptions::new(url.to_owned());
+    opt.max_connections(5)
+       .acquire_timeout(Duration::from_secs(3));
+
+    match Database::connect(opt).await {
+        Ok(conn) => {
             info!("Successfully connected to SQLite database.");
-            Some(pool)
+            Some(conn)
         }
         Err(e) => {
             warn!("Failed to connect to SQLite at {}: {}. Database functionality will be disabled.", url, e);

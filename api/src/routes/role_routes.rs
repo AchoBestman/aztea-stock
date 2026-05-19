@@ -3,7 +3,7 @@ use axum::{
     Router
 };
 use std::sync::Arc;
-use crate::{AppState, controllers::role as role_controller};
+use crate::{AppState, controllers::role_controller};
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()

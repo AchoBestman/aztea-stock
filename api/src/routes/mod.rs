@@ -1,6 +1,6 @@
 use utoipa::OpenApi;
 
-pub mod admin;
+pub mod role_routes;
 pub mod auth;
 pub mod health;
 pub mod products;
@@ -17,11 +17,11 @@ pub mod sync;
         auth::login,
         products::list_products,
         products::get_product,
-        crate::controllers::role::list_roles,
-        crate::controllers::role::get_role,
-        crate::controllers::role::create_role,
-        crate::controllers::role::update_role,
-        crate::controllers::role::delete_role,
+        crate::controllers::role_controller::list_roles,
+        crate::controllers::role_controller::get_role,
+        crate::controllers::role_controller::create_role,
+        crate::controllers::role_controller::update_role,
+        crate::controllers::role_controller::delete_role,
     ),
     components(
         schemas(
@@ -32,10 +32,10 @@ pub mod sync;
             products::Product,
             products::PaginatedMeta,
             products::PaginatedProductResponse,
-            crate::models::role::Role,
-            crate::models::role::CreateRolePayload,
-            crate::models::role::UpdateRolePayload,
-            crate::models::role::DeleteRoleResponse,
+            crate::dtos::response_role_dto::RoleResponse,
+            crate::dtos::create_role_dto::CreateRolePayload,
+            crate::dtos::update_role_dto::UpdateRolePayload,
+            crate::dtos::response_role_dto::DeleteRoleResponse,
         )
     ),
     modifiers(&SecurityAddon),

@@ -62,14 +62,13 @@ async fn test_internal_error() {
 
 #[tokio::test]
 async fn test_database_error() {
-    // Generate a dummy SQLx error (RowNotFound is a simple variant)
-    let sqlx_err = sqlx::Error::RowNotFound;
-    let err = ApiError::Database(sqlx_err);
+    let db_err = sea_orm::DbErr::RecordNotFound("no rows returned".to_string());
+    let err = ApiError::Database(db_err);
     let response = err.into_response();
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
 
     let body = parse_response_body(response).await;
     assert_eq!(body["success"], false);
     assert_eq!(body["error"]["code"], "DATABASE_ERROR");
-    assert_eq!(body["error"]["message"], "Database error: no rows returned by a query that expected to return at least one row");
+    assert_eq!(body["error"]["message"], "Database error: RecordNotFound Error: no rows returned");
 }
