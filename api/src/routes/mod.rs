@@ -1,6 +1,8 @@
 use utoipa::OpenApi;
 
 pub mod role_routes;
+pub mod tenant_routes;
+pub mod user_routes;
 pub mod auth;
 pub mod health;
 pub mod internal;
@@ -23,6 +25,14 @@ pub mod sync;
         crate::controllers::role_controller::create_role,
         crate::controllers::role_controller::update_role,
         crate::controllers::role_controller::delete_role,
+        crate::controllers::tenant_controller::get_tenant,
+        crate::controllers::tenant_controller::update_tenant,
+        crate::controllers::tenant_controller::set_tenant_two_factor,
+        crate::controllers::user_controller::list_users,
+        crate::controllers::user_controller::create_user,
+        crate::controllers::user_controller::set_user_two_factor,
+        crate::controllers::user_controller::set_user_password,
+        crate::controllers::user_controller::send_user_reset,
     ),
     components(
         schemas(
@@ -37,6 +47,14 @@ pub mod sync;
             crate::dtos::create_role_dto::CreateRolePayload,
             crate::dtos::update_role_dto::UpdateRolePayload,
             crate::dtos::response_role_dto::DeleteRoleResponse,
+            crate::dtos::tenant_dto::UpdateTenantPayload,
+            crate::dtos::tenant_dto::SetTenantTwoFactorPayload,
+            crate::dtos::tenant_dto::TenantResponse,
+            crate::dtos::user_dto::CreateUserPayload,
+            crate::dtos::user_dto::SetUserTwoFactorPayload,
+            crate::dtos::user_dto::SetUserPasswordPayload,
+            crate::dtos::user_dto::SendPasswordResetPayload,
+            crate::dtos::user_dto::UserResponse,
         )
     ),
     modifiers(&SecurityAddon),
@@ -44,7 +62,9 @@ pub mod sync;
         (name = "Health", description = "Health check and diagnostics"),
         (name = "Auth", description = "Authentication endpoints"),
         (name = "Products", description = "Product catalog management"),
-        (name = "Admin - Roles", description = "Tenant roles administration CRUD")
+        (name = "Admin - Roles", description = "Tenant roles administration CRUD"),
+        (name = "Admin - Tenant", description = "Tenant configuration management"),
+        (name = "Admin - Users", description = "Tenant users administration management")
     )
 )]
 pub struct ApiDoc;

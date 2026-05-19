@@ -1,0 +1,14 @@
+name = "aztea-stock-email-worker"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+# ── Cloudflare Queue Binding ─────────────────────────────────────────────────
+# When you deploy, configure the queue in your Cloudflare dashboard
+[[queues.consumers]]
+queue = "aztea-stock-emails"
+max_batch_size = 10
+max_batch_timeout = 5
+
+[vars]
+NEXT_PUBLIC_APP_URL = "http://localhost:8080" # Update this to your deployed API URL
+CRON_SECRET = "your-cron-secret-shared-with-rust-api"
