@@ -1,18 +1,16 @@
-use axum::{
-    Json, Extension, extract::State
-};
-use std::sync::Arc;
 use crate::{
     AppState,
+    dtos::user_dto::{
+        CreateUserPayload, SendPasswordResetPayload, SetUserPasswordPayload,
+        SetUserTwoFactorPayload, UserResponse,
+    },
     errors::ApiError,
     middleware::auth::Claims,
-    dtos::user_dto::{
-        CreateUserPayload, SetUserTwoFactorPayload, SetUserPasswordPayload,
-        SendPasswordResetPayload, UserResponse
-    },
     services::user_service::UserService,
     utils::auth::require_permission,
 };
+use axum::{Extension, Json, extract::State};
+use std::sync::Arc;
 
 #[utoipa::path(
     get,
@@ -31,12 +29,16 @@ pub async fn list_users(
     Extension(claims): Extension<Claims>,
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<UserResponse>>, ApiError> {
-    let db = state.db.as_ref().ok_or_else(|| {
-        ApiError::Internal("La base de données n'est pas disponible".to_string())
-    })?;
+    let db = state
+        .db
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("La base de données n'est pas disponible".to_string()))?;
 
     // Check permission (either manage users or read user info)
-    if require_permission(db, &claims.sub, "can_manage_tenant_users").await.is_err() {
+    if require_permission(db, &claims.sub, "can_manage_tenant_users")
+        .await
+        .is_err()
+    {
         require_permission(db, &claims.sub, "can_read_user").await?;
     }
 
@@ -67,12 +69,16 @@ pub async fn create_user(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateUserPayload>,
 ) -> Result<Json<UserResponse>, ApiError> {
-    let db = state.db.as_ref().ok_or_else(|| {
-        ApiError::Internal("La base de données n'est pas disponible".to_string())
-    })?;
+    let db = state
+        .db
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("La base de données n'est pas disponible".to_string()))?;
 
     // Check permission (either manage users or create user)
-    if require_permission(db, &claims.sub, "can_manage_tenant_users").await.is_err() {
+    if require_permission(db, &claims.sub, "can_manage_tenant_users")
+        .await
+        .is_err()
+    {
         require_permission(db, &claims.sub, "can_create_user").await?;
     }
 
@@ -82,7 +88,7 @@ pub async fn create_user(
 
 #[utoipa::path(
     post,
-    path = "/api/v1/admin/users/two-factor",
+    path = "/api/v1/admin/users/set-two-factor",
     request_body(
         content = SetUserTwoFactorPayload,
         description = "Champs pour configurer le 2FA d'un utilisateur",
@@ -103,16 +109,26 @@ pub async fn set_user_two_factor(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<SetUserTwoFactorPayload>,
 ) -> Result<Json<UserResponse>, ApiError> {
-    let db = state.db.as_ref().ok_or_else(|| {
-        ApiError::Internal("La base de données n'est pas disponible".to_string())
-    })?;
+    let db = state
+        .db
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("La base de données n'est pas disponible".to_string()))?;
 
     // Check permission (either manage users or update user)
-    if require_permission(db, &claims.sub, "can_manage_tenant_users").await.is_err() {
+    if require_permission(db, &claims.sub, "can_manage_tenant_users")
+        .await
+        .is_err()
+    {
         require_permission(db, &claims.sub, "can_update_user").await?;
     }
 
-    let user = UserService::set_two_factor(db, &claims.tenant_id, &payload.user_id, payload.two_factor_enabled).await?;
+    let user = UserService::set_two_factor(
+        db,
+        &claims.tenant_id,
+        &payload.user_id,
+        payload.two_factor_enabled,
+    )
+    .await?;
     Ok(Json(user))
 }
 
@@ -139,20 +155,23 @@ pub async fn set_user_password(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<SetUserPasswordPayload>,
 ) -> Result<Json<UserResponse>, ApiError> {
-    let db = state.db.as_ref().ok_or_else(|| {
-        ApiError::Internal("La base de données n'est pas disponible".to_string())
-    })?;
+    let db = state
+        .db
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("La base de données n'est pas disponible".to_string()))?;
 
     // Check permission
     require_permission(db, &claims.sub, "can_set_tenant_password").await?;
 
-    let user = UserService::set_password(db, &claims.tenant_id, &payload.user_id, &payload.password).await?;
+    let user =
+        UserService::set_password(db, &claims.tenant_id, &payload.user_id, &payload.password)
+            .await?;
     Ok(Json(user))
 }
 
 #[utoipa::path(
     post,
-    path = "/api/v1/admin/users/send-reset",
+    path = "/api/v1/auth/users/reset-password-request",
     request_body(
         content = SendPasswordResetPayload,
         description = "Email de l'utilisateur à réinitialiser",
@@ -166,16 +185,17 @@ pub async fn set_user_password(
     security(
         ("bearerAuth" = [])
     ),
-    tag = "Admin - Users"
+    tag = "Auth"
 )]
 pub async fn send_user_reset(
     Extension(claims): Extension<Claims>,
     State(state): State<Arc<AppState>>,
     Json(payload): Json<SendPasswordResetPayload>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let db = state.db.as_ref().ok_or_else(|| {
-        ApiError::Internal("La base de données n'est pas disponible".to_string())
-    })?;
+    let db = state
+        .db
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("La base de données n'est pas disponible".to_string()))?;
 
     // Check permission
     require_permission(db, &claims.sub, "can_send_tenant_password_reset").await?;
