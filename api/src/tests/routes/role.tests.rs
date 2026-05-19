@@ -426,3 +426,74 @@ async fn test_assign_role_permissions_success_and_errors() {
         .unwrap();
     assert_eq!(res_sa_assign.status(), StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn test_list_grouped_permissions_success_and_forbidden() {
+    let db = setup_test_db().await;
+    
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO tenants (id, name, business_type, email, is_system) VALUES ('tenant-1', 'My Tenant', 'pharmacy', 'own@tenant.com', 1)".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO roles (id, tenant_id, name, description) VALUES ('role-authorized', 'tenant-1', 'admin', 'Tenant admin')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO roles (id, tenant_id, name, description) VALUES ('role-unauthorized', 'tenant-1', 'cashier', 'Tenant cashier')".to_string())).await.unwrap();
+    
+    // Seed some permissions in different groups
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO permissions (id, name, description, model_group) VALUES ('p-read', 'can_read_role', 'Read Roles', 'roles')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO permissions (id, name, description, model_group) VALUES ('p-read-perm', 'can_read_permission', 'Read Perms', 'roles')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO permissions (id, name, description, model_group) VALUES ('perm-sale-1', 'can_create_sale', 'Create Sales', 'sales')".to_string())).await.unwrap();
+    
+    // Assign permissions
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO role_permissions (role_id, permission_id) VALUES ('role-authorized', 'p-read-perm')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO role_permissions (role_id, permission_id) VALUES ('role-unauthorized', 'p-read')".to_string())).await.unwrap();
+    
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO users (id, tenant_id, name, email, password_hash, is_active) VALUES ('user-auth', 'tenant-1', 'Authorized User', 'auth@tenant.com', 'hash', 1)".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO users (id, tenant_id, name, email, password_hash, is_active) VALUES ('user-unauth', 'tenant-1', 'Unauthorized User', 'unauth@tenant.com', 'hash', 1)".to_string())).await.unwrap();
+    
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO user_roles (user_id, role_id) VALUES ('user-auth', 'role-authorized')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO user_roles (user_id, role_id) VALUES ('user-unauth', 'role-unauthorized')".to_string())).await.unwrap();
+
+    let config = Config::default();
+    let state = Arc::new(AppState { db: Some(db), config: config.clone() });
+    let app = create_app(state);
+    
+    let token_auth = create_token("user-auth", "tenant-1", "admin", &config.jwt_secret);
+    let token_unauth = create_token("user-unauth", "tenant-1", "cashier", &config.jwt_secret);
+
+    // 1. Unauthorized: should return 401 (ApiError::Unauthorized maps to 401 in Axum)
+    let res_unauth = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/admin/permissions")
+                .header("Authorization", format!("Bearer {}", token_unauth))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_unauth.status(), StatusCode::UNAUTHORIZED);
+
+    // 2. Authorized: should successfully retrieve grouped permissions
+    let res_auth = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/admin/permissions")
+                .header("Authorization", format!("Bearer {}", token_auth))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_auth.status(), StatusCode::OK);
+    
+    let bytes = res_auth.into_body().collect().await.unwrap().to_bytes();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    let arr = body.as_array().unwrap();
+    
+    // We seeded permissions in groups "roles" and "sales", sorted by group name ("roles" < "sales")
+    assert_eq!(arr.len(), 2);
+    assert_eq!(arr[0]["group"], "roles");
+    assert_eq!(arr[0]["permissions"].as_array().unwrap().len(), 2);
+    
+    assert_eq!(arr[1]["group"], "sales");
+    assert_eq!(arr[1]["permissions"].as_array().unwrap().len(), 1);
+}

@@ -3,11 +3,12 @@ use axum::{
     Router
 };
 use std::sync::Arc;
-use crate::{AppState, controllers::role_controller};
+use crate::{AppState, controllers::{role_controller, permission_controller}};
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/roles", get(role_controller::list_roles).post(role_controller::create_role))
         .route("/roles/:id", get(role_controller::get_role).put(role_controller::update_role).delete(role_controller::delete_role))
         .route("/roles/:id/permissions", post(role_controller::assign_role_permissions))
+        .route("/permissions", get(permission_controller::list_permissions))
 }

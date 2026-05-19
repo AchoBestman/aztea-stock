@@ -245,6 +245,7 @@ async fn run_seeds(pool: &AnyPool) -> Result<(), anyhow::Error> {
         ("can_update_role", "Permet de modifier les rôles", "roles"),
         ("can_delete_role", "Permet de supprimer les rôles", "roles"),
         ("can_assign_role_to_user", "Permet d'assigner des rôles aux utilisateurs", "roles"),
+        ("can_read_permission", "Permet de voir la liste des permissions système", "roles"),
         // Products
         ("can_create_product", "Permet de créer des produits", "products"),
         ("can_read_product", "Permet de lire les produits", "products"),
