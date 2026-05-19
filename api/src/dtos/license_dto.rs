@@ -38,3 +38,13 @@ pub struct FullLicenseResponse {
     pub is_active: bool,
     pub created_at: String,
 }
+
+#[derive(Serialize, ToSchema, Clone, Debug)]
+pub struct LicenseStatusResponse {
+    pub has_active_license: bool,
+    pub license_id: Option<String>,
+    pub subscription_plan: Option<String>,
+    pub expires_at: Option<String>,
+    pub days_remaining: Option<i64>,
+    pub renewal_alert: bool,   // true if ≤ 7 days remaining
+}

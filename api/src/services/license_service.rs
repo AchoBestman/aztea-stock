@@ -27,7 +27,6 @@ impl LicenseService {
     }
 
     fn generate_random_key() -> String {
-        let rng = rand::thread_rng();
         let parts: Vec<String> = (0..4)
             .map(|_| {
                 let p: String = rand::thread_rng()
@@ -83,16 +82,57 @@ impl LicenseService {
         })
     }
 
-    pub async fn list_tenant_licenses(
+    pub async fn list_licenses(
         db: &DatabaseConnection,
-        tenant_id: &str,
-    ) -> Result<Vec<LicenseResponse>, ApiError> {
-        let models = license::Entity::find()
-            .filter(license::Column::TenantId.eq(tenant_id))
-            .all(db)
-            .await?;
+        params: crate::utils::pagination::PaginationParams,
+        enforce_tenant_id: Option<String>,
+    ) -> Result<crate::utils::pagination::PaginatedResponse<LicenseResponse>, ApiError> {
+        let mut query = license::Entity::find();
+
+        let target_tenant = enforce_tenant_id.or(params.tenant_id);
+        if let Some(tenant_id) = target_tenant {
+            query = query.filter(license::Column::TenantId.eq(tenant_id));
+        }
+
+        if let Some(search) = params.search {
+            query = query.filter(
+                sea_orm::Condition::any()
+                    .add(license::Column::DeviceName.contains(&search))
+            );
+        }
+
+        if let Some(start_date) = params.start_date {
+            if let Ok(date) = chrono::DateTime::parse_from_rfc3339(&start_date) {
+                query = query.filter(license::Column::CreatedAt.gte(date));
+            }
+        }
+
+        if let Some(end_date) = params.end_date {
+            if let Ok(date) = chrono::DateTime::parse_from_rfc3339(&end_date) {
+                query = query.filter(license::Column::CreatedAt.lte(date));
+            }
+        }
+
+        let page = params.page.unwrap_or(1);
+        let per_page = params.per_page.unwrap_or(20);
+
+        use sea_orm::{PaginatorTrait, QueryOrder};
         
-        Ok(models.into_iter().map(Self::map_to_response).collect())
+        query = query.order_by_desc(license::Column::CreatedAt);
+
+        let paginator = query.paginate(db, per_page);
+        let total = paginator.num_items().await?;
+        let total_pages = paginator.num_pages().await?;
+        
+        let models = paginator.fetch_page(page - 1).await?;
+        
+        Ok(crate::utils::pagination::PaginatedResponse {
+            data: models.into_iter().map(Self::map_to_response).collect(),
+            total,
+            page,
+            per_page,
+            total_pages,
+        })
     }
 
     pub async fn activate_license(
@@ -128,5 +168,139 @@ impl LicenseService {
         }
 
         Err(ApiError::NotFound("Clé de licence invalide ou introuvable pour cette entreprise".to_string()))
+    }
+
+    /// Returns the active license status for a tenant, including subscription plan & expiry.
+    pub async fn get_license_status(
+        db: &DatabaseConnection,
+        tenant_id: &str,
+    ) -> Result<crate::dtos::license_dto::LicenseStatusResponse, ApiError> {
+        use sea_orm::QueryOrder;
+
+        let license = license::Entity::find()
+            .filter(license::Column::TenantId.eq(tenant_id))
+            .filter(license::Column::IsActive.eq(true))
+            .filter(license::Column::RevokedAt.is_null())
+            .order_by_desc(license::Column::CreatedAt)
+            .one(db)
+            .await?;
+
+        match license {
+            None => Ok(crate::dtos::license_dto::LicenseStatusResponse {
+                has_active_license: false,
+                license_id: None,
+                subscription_plan: None,
+                expires_at: None,
+                days_remaining: None,
+                renewal_alert: false,
+            }),
+            Some(lic) => {
+                let sub = subscription::Entity::find_by_id(&lic.subscription_id)
+                    .one(db)
+                    .await?;
+
+                let (plan, expires_at, days_remaining, renewal_alert) = match sub {
+                    None => (None, None, None, false),
+                    Some(s) => {
+                        let expires = s.expires_at;
+                        let now = chrono::Utc::now();
+                        let days = (expires.with_timezone(&chrono::Utc) - now).num_days();
+                        let alert = days <= 7;
+                        (
+                            Some(s.plan.clone()),
+                            Some(expires.to_rfc3339()),
+                            Some(days),
+                            alert,
+                        )
+                    }
+                };
+
+                Ok(crate::dtos::license_dto::LicenseStatusResponse {
+                    has_active_license: true,
+                    license_id: Some(lic.id),
+                    subscription_plan: plan,
+                    expires_at,
+                    days_remaining,
+                    renewal_alert,
+                })
+            }
+        }
+    }
+
+    /// Background job: checks all active subscriptions. Suspends expired ones and
+    /// notifies tenants whose licenses expire within 7 days.
+    pub async fn check_and_notify_expiring_licenses(
+        state: &crate::AppState,
+    ) {
+        let db = match state.db.as_ref() {
+            Some(db) => db,
+            None => return,
+        };
+
+        let now = chrono::Utc::now().fixed_offset();
+        let alert_threshold = (chrono::Utc::now() + chrono::Duration::days(7)).fixed_offset();
+
+        // 1. Suspend all expired active subscriptions
+        let expired = subscription::Entity::find()
+            .filter(subscription::Column::Status.eq("active"))
+            .filter(subscription::Column::ExpiresAt.lt(now))
+            .all(db)
+            .await
+            .unwrap_or_default();
+
+        for sub in expired {
+            tracing::info!("[LicenseTask] Suspending expired subscription {} for tenant {}", sub.id, sub.tenant_id);
+            let mut active_sub: subscription::ActiveModel = sub.clone().into();
+            active_sub.status = sea_orm::Set("suspended".to_string());
+            let _ = sea_orm::ActiveModelTrait::update(active_sub, db).await;
+
+            // Also mark all licenses for this subscription inactive
+            let lics = license::Entity::find()
+                .filter(license::Column::SubscriptionId.eq(&sub.id))
+                .all(db)
+                .await
+                .unwrap_or_default();
+
+            for lic in lics {
+                let mut active_lic: license::ActiveModel = lic.into();
+                active_lic.is_active = sea_orm::Set(Some(false));
+                let _ = sea_orm::ActiveModelTrait::update(active_lic, db).await;
+            }
+        }
+
+        // 2. Notify tenants whose subscriptions expire within 7 days
+        let expiring_soon = subscription::Entity::find()
+            .filter(subscription::Column::Status.eq("active"))
+            .filter(subscription::Column::ExpiresAt.gte(now))
+            .filter(subscription::Column::ExpiresAt.lte(alert_threshold))
+            .all(db)
+            .await
+            .unwrap_or_default();
+
+        for sub in expiring_soon {
+            let days_left = (sub.expires_at.with_timezone(&chrono::Utc) - chrono::Utc::now()).num_days();
+            tracing::info!(
+                "[LicenseTask] Sending renewal alert for tenant {} — {} days left",
+                sub.tenant_id, days_left
+            );
+
+            // Fetch tenant email
+            let tenant_opt = crate::models::tenant::Entity::find_by_id(&sub.tenant_id)
+                .one(db)
+                .await
+                .unwrap_or(None);
+
+            if let Some(t) = tenant_opt {
+                let _ = crate::services::email_service::send_license_renewal_alert(
+                    state,
+                    &sub.tenant_id,
+                    &t.email,
+                    &sub.plan,
+                    days_left,
+                    &sub.expires_at.to_rfc3339(),
+                )
+                .await;
+            }
+        }
     }
 }

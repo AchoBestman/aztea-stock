@@ -62,16 +62,58 @@ impl SubscriptionService {
         Ok(Self::map_to_response(model))
     }
 
-    pub async fn list_tenant_subscriptions(
+    pub async fn list_subscriptions(
         db: &DatabaseConnection,
-        tenant_id: &str,
-    ) -> Result<Vec<SubscriptionResponse>, ApiError> {
-        let models = subscription::Entity::find()
-            .filter(subscription::Column::TenantId.eq(tenant_id))
-            .all(db)
-            .await?;
+        params: crate::utils::pagination::PaginationParams,
+        enforce_tenant_id: Option<String>,
+    ) -> Result<crate::utils::pagination::PaginatedResponse<SubscriptionResponse>, ApiError> {
+        let mut query = subscription::Entity::find();
+
+        let target_tenant = enforce_tenant_id.or(params.tenant_id);
+        if let Some(tenant_id) = target_tenant {
+            query = query.filter(subscription::Column::TenantId.eq(tenant_id));
+        }
+
+        if let Some(search) = params.search {
+            query = query.filter(
+                sea_orm::Condition::any()
+                    .add(subscription::Column::Plan.contains(&search))
+                    .add(subscription::Column::Status.contains(&search))
+            );
+        }
+
+        if let Some(start_date) = params.start_date {
+            if let Ok(date) = chrono::DateTime::parse_from_rfc3339(&start_date) {
+                query = query.filter(subscription::Column::CreatedAt.gte(date));
+            }
+        }
+
+        if let Some(end_date) = params.end_date {
+            if let Ok(date) = chrono::DateTime::parse_from_rfc3339(&end_date) {
+                query = query.filter(subscription::Column::CreatedAt.lte(date));
+            }
+        }
+
+        let page = params.page.unwrap_or(1);
+        let per_page = params.per_page.unwrap_or(20);
+
+        use sea_orm::{PaginatorTrait, QueryOrder};
         
-        Ok(models.into_iter().map(Self::map_to_response).collect())
+        query = query.order_by_desc(subscription::Column::CreatedAt);
+
+        let paginator = query.paginate(db, per_page);
+        let total = paginator.num_items().await?;
+        let total_pages = paginator.num_pages().await?;
+        
+        let models = paginator.fetch_page(page - 1).await?;
+        
+        Ok(crate::utils::pagination::PaginatedResponse {
+            data: models.into_iter().map(Self::map_to_response).collect(),
+            total,
+            page,
+            per_page,
+            total_pages,
+        })
     }
 
     pub async fn get_subscription(

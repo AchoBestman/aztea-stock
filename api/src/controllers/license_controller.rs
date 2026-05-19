@@ -1,13 +1,15 @@
-use axum::{Extension, Json, extract::{State, Path}};
+use axum::{Extension, Json, extract::{State, Query}};
 use std::sync::Arc;
 use crate::{
     AppState,
     errors::ApiError,
     middleware::auth::Claims,
-    dtos::license_dto::{ActivateLicensePayload, FullLicenseResponse, GenerateLicensePayload, LicenseResponse},
+    dtos::license_dto::{ActivateLicensePayload, FullLicenseResponse, GenerateLicensePayload, LicenseResponse, LicenseStatusResponse},
     services::license_service::LicenseService,
-    utils::auth::require_permission,
+    utils::{auth::require_permission, pagination::PaginationParams},
+    models::tenant,
 };
+use sea_orm::EntityTrait;
 
 #[utoipa::path(
     post,
@@ -36,33 +38,64 @@ pub async fn generate_license(
 
 #[utoipa::path(
     get,
-    path = "/api/v1/admin/tenants/{tenant_id}/licenses",
-    params(
-        ("tenant_id" = String, Path, description = "ID of the tenant")
-    ),
+    path = "/api/v1/admin/licenses",
+    params(PaginationParams),
     responses(
-        (status = 200, description = "Liste des licences.", body = Vec<LicenseResponse>),
+        (status = 200, description = "Liste paginée des licences."),
     ),
     security(("bearerAuth" = [])),
     tag = "Admin - Licenses"
 )]
-pub async fn list_tenant_licenses(
+pub async fn list_licenses(
     Extension(claims): Extension<Claims>,
     State(state): State<Arc<AppState>>,
-    Path(tenant_id): Path<String>,
-) -> Result<Json<Vec<LicenseResponse>>, ApiError> {
+    Query(params): Query<PaginationParams>,
+) -> Result<Json<crate::utils::pagination::PaginatedResponse<LicenseResponse>>, ApiError> {
     let db = state.db.as_ref().ok_or_else(|| {
         ApiError::Internal("Base de données indisponible".to_string())
     })?;
 
-    if tenant_id != claims.tenant_id {
-        require_permission(db, &claims.sub, "can_read_all_licenses").await?;
+    let caller_tenant = tenant::Entity::find_by_id(&claims.tenant_id)
+        .one(db).await?
+        .ok_or_else(|| ApiError::Unauthorized("Tenant introuvable".to_string()))?;
+
+    let enforce_tenant_id = if caller_tenant.is_system {
+        None // Can filter by params.tenant_id freely
     } else {
+        Some(claims.tenant_id.clone())
+    };
+
+    if !caller_tenant.is_system {
         require_permission(db, &claims.sub, "can_read_licenses").await?;
+    } else {
+        require_permission(db, &claims.sub, "can_manage_licenses").await?;
     }
 
-    let lics = LicenseService::list_tenant_licenses(db, &tenant_id).await?;
+    let lics = LicenseService::list_licenses(db, params, enforce_tenant_id).await?;
     Ok(Json(lics))
+}
+
+/// Route utilisable par un tenant pour consulter l'état de sa licence active
+#[utoipa::path(
+    get,
+    path = "/api/v1/licenses/status",
+    responses(
+        (status = 200, description = "Statut de la licence active.", body = LicenseStatusResponse),
+        (status = 404, description = "Aucune licence active trouvée."),
+    ),
+    security(("bearerAuth" = [])),
+    tag = "Licenses"
+)]
+pub async fn get_license_status(
+    Extension(claims): Extension<Claims>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<LicenseStatusResponse>, ApiError> {
+    let db = state.db.as_ref().ok_or_else(|| {
+        ApiError::Internal("Base de données indisponible".to_string())
+    })?;
+
+    let status = LicenseService::get_license_status(db, &claims.tenant_id).await?;
+    Ok(Json(status))
 }
 
 #[utoipa::path(

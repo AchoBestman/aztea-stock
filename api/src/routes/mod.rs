@@ -44,10 +44,11 @@ pub mod licenses;
         crate::controllers::user_controller::create_user,
         crate::controllers::user_controller::set_user_two_factor,
         crate::controllers::subscription_controller::create_subscription,
-        crate::controllers::subscription_controller::list_tenant_subscriptions,
+        crate::controllers::subscription_controller::list_subscriptions,
         crate::controllers::license_controller::generate_license,
-        crate::controllers::license_controller::list_tenant_licenses,
+        crate::controllers::license_controller::list_licenses,
         crate::controllers::license_controller::activate_license,
+        crate::controllers::license_controller::get_license_status,
         crate::controllers::user_controller::set_user_password,
         crate::controllers::user_controller::send_user_reset,
     ),
@@ -89,16 +90,20 @@ pub mod licenses;
             crate::dtos::license_dto::ActivateLicensePayload,
             crate::dtos::license_dto::LicenseResponse,
             crate::dtos::license_dto::FullLicenseResponse,
+            crate::dtos::license_dto::LicenseStatusResponse,
         )
     ),
     modifiers(&SecurityAddon),
     tags(
         (name = "Health", description = "Health check and diagnostics"),
         (name = "Auth", description = "Authentication endpoints"),
+        (name = "Licenses", description = "License activation & status"),
         (name = "Products", description = "Product catalog management"),
         (name = "Admin - Roles", description = "Tenant roles administration CRUD"),
         (name = "Admin - Tenant", description = "Tenant configuration management"),
-        (name = "Admin - Users", description = "Tenant users administration management")
+        (name = "Admin - Users", description = "Tenant users administration management"),
+        (name = "Admin - Subscriptions", description = "Subscription management (system only)"),
+        (name = "Admin - Licenses", description = "License generation & management (system only)")
     )
 )]
 pub struct ApiDoc;

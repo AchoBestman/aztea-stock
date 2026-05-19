@@ -412,3 +412,34 @@ pub async fn send_password_reset_email(
     let html = base_template(&name, "Initialisation du mot de passe", "Définir votre mot de passe", &body);
     enqueue_email(state, tenant_id, to, &format!("{} — Initialisation de votre compte", name), &html).await
 }
+
+/// License expiry renewal alert email
+pub async fn send_license_renewal_alert(
+    state: &AppState,
+    tenant_id: &str,
+    to: &str,
+    plan: &str,
+    days_left: i64,
+    expires_at: &str,
+) -> Result<bool, anyhow::Error> {
+    let name = tenant_name(state, tenant_id).await;
+    let urgency_color = if days_left <= 3 { "#dc2626" } else { "#d97706" };
+    let urgency_label = if days_left <= 3 {
+        format!("⚠️ URGENT — {days_left} jour(s) restant(s) !")
+    } else {
+        format!("🔔 Renouvellement dans {days_left} jour(s)")
+    };
+    let body = format!(
+        r#"<h2 style="margin:0 0 8px;font-size:22px;color:#0f172a;">Votre licence expire bientôt</h2>
+<p style="margin:0 0 16px;font-size:14px;color:#64748b;">Cher client de {name}, votre abonnement <strong>{plan}</strong> arrive à expiration.</p>
+<div style="background:#fef9c3;border:2px solid {urgency_color};border-radius:10px;padding:24px;text-align:center;margin-bottom:28px;">
+  <p style="margin:0;font-size:20px;font-weight:700;color:{urgency_color};">{urgency_label}</p>
+  <p style="margin:12px 0 0;font-size:13px;color:#64748b;">Date d'expiration : <strong>{expires_at}</strong></p>
+</div>
+<p style="margin:0 0 16px;font-size:14px;color:#64748b;">
+  Pour éviter toute interruption de service, veuillez contacter votre gestionnaire de compte ou renouveler votre abonnement.
+</p>"#
+    );
+    let html = base_template(&name, "Renouvellement de licence", "Renouvelez votre abonnement", &body);
+    enqueue_email(state, tenant_id, to, &format!("{} — Renouvellement de votre licence", name), &html).await
+}
