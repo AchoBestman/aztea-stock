@@ -152,3 +152,46 @@ async fn test_set_tenant_two_factor_success_system_tenant_modifying_another() {
     assert_eq!(body["id"], "tenant-2");
     assert_eq!(body["two_factor_enabled"], true);
 }
+
+#[tokio::test]
+async fn test_set_tenant_two_factor_success_implicit_session_tenant() {
+    let db = setup_test_db().await;
+    
+    // Seed
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO tenants (id, name, business_type, email, is_system) VALUES ('tenant-1', 'My Tenant', 'pharmacy', 'own@tenant.com', 0)".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO roles (id, tenant_id, name, description) VALUES ('role-1', 'tenant-1', 'admin', 'Tenant admin')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO permissions (id, name, description, model_group) VALUES ('perm-1', 'can_set_tenant_two_factor', 'Set 2FA', 'tenant')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO role_permissions (role_id, permission_id) VALUES ('role-1', 'perm-1')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO users (id, tenant_id, name, email, password_hash, is_active) VALUES ('user-1', 'tenant-1', 'User Admin', 'admin@tenant.com', 'hash', 1)".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO user_roles (user_id, role_id) VALUES ('user-1', 'role-1')".to_string())).await.unwrap();
+
+    let config = Config::default();
+    let state = Arc::new(AppState { db: Some(db), config: config.clone() });
+    let app = create_app(state);
+
+    let token = create_token("user-1", "tenant-1", "admin", &config.jwt_secret);
+
+    // Payload completely omits tenant_id
+    let payload = json!({
+        "two_factor_enabled": true
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/admin/tenant/two-factor")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["id"], "tenant-1");
+    assert_eq!(body["two_factor_enabled"], true);
+}

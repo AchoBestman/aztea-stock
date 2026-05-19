@@ -19,7 +19,7 @@ pub struct UpdateTenantPayload {
 
 #[derive(Deserialize, ToSchema, Clone, Debug)]
 pub struct SetTenantTwoFactorPayload {
-    pub tenant_id: String,
+    pub tenant_id: Option<String>,
     pub two_factor_enabled: bool,
 }
 
