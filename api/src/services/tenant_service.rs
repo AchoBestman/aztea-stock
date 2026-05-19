@@ -214,7 +214,7 @@ impl TenantService {
         }
     }
 
-    async fn load_tenant(
+    pub async fn load_tenant(
         db: &DatabaseConnection,
         id: &str,
         err_msg: &str,

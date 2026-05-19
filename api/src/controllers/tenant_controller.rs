@@ -47,9 +47,7 @@ pub async fn create_tenant(
     require_permission(db, &claims.sub, "can_create_tenant").await?;
 
     // 2. Load caller's tenant to verify it's the system tenant
-    let caller_tenant = crate::repositories::tenant_repository::TenantRepository::find_by_id(db, &claims.tenant_id)
-        .await?
-        .ok_or_else(|| ApiError::NotFound("Tenant de l'utilisateur introuvable".to_string()))?;
+    let caller_tenant = TenantService::load_tenant(db, &claims.tenant_id, "Tenant de l'utilisateur introuvable").await?;
 
     if !caller_tenant.is_system {
         return Err(ApiError::Unauthorized(
@@ -86,9 +84,7 @@ pub async fn list_tenants(
     require_permission(db, &claims.sub, "can_read_tenant").await?;
 
     // 2. Load caller's tenant to verify it's the system tenant
-    let caller_tenant = crate::repositories::tenant_repository::TenantRepository::find_by_id(db, &claims.tenant_id)
-        .await?
-        .ok_or_else(|| ApiError::NotFound("Tenant de l'utilisateur introuvable".to_string()))?;
+    let caller_tenant = TenantService::load_tenant(db, &claims.tenant_id, "Tenant de l'utilisateur introuvable").await?;
 
     if !caller_tenant.is_system {
         return Err(ApiError::Unauthorized(
@@ -238,9 +234,7 @@ pub async fn set_tenant_two_factor(
     require_permission(db, &claims.sub, "can_set_tenant_two_factor").await?;
 
     // 2. Load caller's tenant to check if they belong to the system tenant (is_system = true)
-    let caller_tenant = crate::repositories::tenant_repository::TenantRepository::find_by_id(db, &claims.tenant_id)
-        .await?
-        .ok_or_else(|| ApiError::NotFound("Tenant de l'utilisateur introuvable".to_string()))?;
+    let caller_tenant = TenantService::load_tenant(db, &claims.tenant_id, "Tenant de l'utilisateur introuvable").await?;
 
     // 3. Enforce the rule:
     // Determine the target tenant_id: default to caller's tenant_id if not specified in the payload.
