@@ -24,3 +24,5 @@ pub mod tenant_tests;
 
 #[path = "routes/role.tests.rs"]
 pub mod role_tests;
+
+pub mod helpers;
