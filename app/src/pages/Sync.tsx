@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { RefreshCw, Search, CheckCircle2, AlertCircle, Clock, Database, Upload, ArrowUpRight, Plus, Edit2, Trash2 } from 'lucide-react';
-import { useSyncStore, PendingAction } from '../store/syncStore';
+import { useState, useEffect } from 'react';
+import { RefreshCw, CheckCircle2, AlertCircle, Clock, Upload, Plus, Edit2, Trash2 } from 'lucide-react';
+import { useSyncStore } from '../store/syncStore';
 import { api, SyncLog } from '../services/api';
 
 export default function Sync() {

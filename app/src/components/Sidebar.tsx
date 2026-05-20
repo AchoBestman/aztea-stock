@@ -19,7 +19,7 @@ import clsx from 'clsx';
 
 export default function Sidebar() {
   const { user, logout, licenseStatus } = useAuthStore();
-  const { isOnline, isSyncing, pendingCount, sync } = useSyncStore();
+  const { isOnline, isSyncing } = useSyncStore();
 
   const menuItems = [
     { to: '/', icon: LayoutDashboard, label: 'Tableau de bord' },
@@ -157,11 +157,7 @@ export default function Sidebar() {
         >
           <RefreshCw className={clsx("w-3.5 h-3.5 text-primary", isSyncing && "animate-spin")} />
           <span>{isSyncing ? 'Synchronisation...' : 'Synchroniser'}</span>
-          {pendingCount > 0 && !isSyncing && (
-            <span className="ml-auto bg-primary text-primary-foreground text-[10px] px-1.5 py-0.5 rounded-full font-bold">
-              {pendingCount}
-            </span>
-          )}
+
         </Link>
 
         {/* User Card */}

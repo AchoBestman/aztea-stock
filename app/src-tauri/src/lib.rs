@@ -292,6 +292,61 @@ fn get_hardware_devices() -> HardwareResponse {
     }
 }
 
+#[tauri::command]
+fn print_receipt(printer_name: String, content: String) -> Result<String, String> {
+    let temp_path = std::env::temp_dir().join("aztea_receipt.txt");
+    std::fs::write(&temp_path, &content)
+        .map_err(|e| format!("Impossible d'écrire le fichier temporaire: {}", e))?;
+
+    let result = if cfg!(target_os = "windows") {
+        if printer_name.is_empty() {
+            Command::new("powershell")
+                .args(&[
+                    "-Command",
+                    &format!("Get-Content '{}' | Out-Printer", temp_path.display()),
+                ])
+                .output()
+        } else {
+            Command::new("powershell")
+                .args(&[
+                    "-Command",
+                    &format!(
+                        "Get-Content '{}' | Out-Printer '{}'",
+                        temp_path.display(),
+                        printer_name
+                    ),
+                ])
+                .output()
+        }
+    } else {
+        if printer_name.is_empty() {
+            Command::new("lp")
+                .arg(&temp_path)
+                .output()
+        } else {
+            Command::new("lp")
+                .arg("-d")
+                .arg(&printer_name)
+                .arg(&temp_path)
+                .output()
+        }
+    };
+
+    let _ = std::fs::remove_file(&temp_path);
+
+    match result {
+        Ok(output) => {
+            if output.status.success() {
+                Ok("Impression envoyée avec succès".to_string())
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                Err(format!("Impression échouée: {}", stderr))
+            }
+        }
+        Err(e) => Err(format!("Erreur d'impression: {}", e)),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -302,7 +357,8 @@ pub fn run() {
             set_device_key,
             get_hardware_devices,
             get_device_fingerprint,
-            get_device_info
+            get_device_info,
+            print_receipt
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "aztea-stock",
+  "productName": "Aztea Stock",
   "version": "0.1.0",
-  "identifier": "com.azteastock.app",
+  "identifier": "com.stock-aztea.com",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,9 +12,13 @@
   "app": {
     "windows": [
       {
-        "title": "app",
-        "width": 800,
-        "height": 600
+        "title": "Aztea Stock",
+        "width": 1200,
+        "height": 768,
+        "minWidth": 1200,
+        "minHeight": 768,
+        "resizable": true,
+        "fullscreen": false
       }
     ],
     "security": {
@@ -22,6 +26,9 @@
     }
   },
   "bundle": {
+    "copyright": "Copyright © 2026 All rights reserved.",
+    "createUpdaterArtifacts": true,
+    "publisher": "Aztea Company SARL",
     "active": true,
     "targets": "all",
     "icon": [
@@ -30,6 +37,56 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "externalBin": [],
+    "category": "Business",
+    "shortDescription": "Gestion de stock",
+    "longDescription": "Gestion de stock pour les pharmacies et supermarchés",
+    "windows": {
+      "allowDowngrades": true,
+      "certificateThumbprint": null,
+      "digestAlgorithm": "SHA256",
+      "timestampUrl": null,
+      "nsis": null,
+      "signCommand": null,
+      "tsp": false,
+      "webviewInstallMode": {
+        "silent": true,
+        "type": "embedBootstrapper"
+      },
+      "wix": null
+    },
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": true,
+        "files": {}
+      },
+      "deb": {
+        "files": {}
+      },
+      "rpm": {
+        "epoch": 0,
+        "files": {},
+        "release": "1"
+      }
+    },
+    "macOS": {
+      "dmg": {
+        "appPosition": {
+          "x": 180,
+          "y": 170
+        },
+        "applicationFolderPosition": {
+          "x": 480,
+          "y": 170
+        },
+        "windowSize": {
+          "height": 576,
+          "width": 1024
+        }
+      },
+      "hardenedRuntime": true,
+      "minimumSystemVersion": "10.13"
+    }
   }
 }

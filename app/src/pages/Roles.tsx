@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Shield, Check, Trash2, Edit2 } from 'lucide-react';
-import { api, Role, GroupedPermission, Permission } from '../services/api';
+import { Plus, Shield, Check, Trash2 } from 'lucide-react';
+import { api, Role, GroupedPermission } from '../services/api';
 import { toast } from 'react-hot-toast';
 import { ConfirmModal } from '../components/ConfirmModal';
 

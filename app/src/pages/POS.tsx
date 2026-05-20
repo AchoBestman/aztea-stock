@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { 
   Search, 
   ShoppingCart, 
@@ -46,6 +46,88 @@ export default function POS() {
   const [receiptData, setReceiptData] = useState<Sale | null>(null);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
+
+  // Auto-dismiss notification
+  useEffect(() => {
+    if (notification) {
+      const t = setTimeout(() => setNotification(null), 4000);
+      return () => clearTimeout(t);
+    }
+  }, [notification]);
+
+  const notify = useCallback((message: string, type: 'success' | 'error' | 'warning') => {
+    setNotification({ message, type });
+  }, []);
+
+  // Generate receipt plain text for thermal printer
+  const generateReceiptText = (sale: Sale) => {
+    const w = parseInt(localStorage.getItem('aztea_printer_width') || '80') === 58 ? 32 : 42;
+    const center = (s: string) => { const pad = Math.max(0, Math.floor((w - s.length) / 2)); return ' '.repeat(pad) + s; };
+    const line = (l: string, r: string) => { const space = Math.max(1, w - l.length - r.length); return l + ' '.repeat(space) + r; };
+    const sep = '-'.repeat(w);
+    const lines: string[] = [
+      center('AZTEA PHARMACY & POS'),
+      center('Brazzaville, Congo'),
+      center('Tel: +242 05 656 0299'),
+      sep,
+      `Ticket: ${sale.receipt_number}`,
+      `Date: ${new Date(sale.sold_at).toLocaleString('fr-FR')}`,
+      `Caissier: ${user?.name || 'Inconnu'}`,
+      sep,
+      ...sale.items.map(item => line(item.product_name?.substring(0, w - 16) || '', `${item.quantity}x${item.unit_price}F`)),
+      sep,
+      line('Sous-total:', `${sale.subtotal} F`),
+    ];
+    if (sale.discount_total > 0) lines.push(line('Remise:', `-${sale.discount_total} F`));
+    lines.push(sep, line('NET A PAYER:', `${sale.total} F`), sep);
+    const pm = sale.payment_method === 'cash' ? 'Especes' : sale.payment_method === 'mobile_money' ? 'Mobile Money' : 'Carte';
+    lines.push(`Mode: ${pm}`, sep, center('*** MERCI DE VOTRE VISITE ***'), '', '');
+    return lines.join('\n');
+  };
+
+  // Print receipt: Tauri = silent lp, Web = iframe print
+  const printReceipt = async (sale: Sale) => {
+    const printerName = localStorage.getItem('aztea_default_printer') || '';
+    const isTauri = typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__ !== undefined;
+    if (isTauri) {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        const content = generateReceiptText(sale);
+        await invoke('print_receipt', { printerName, content });
+        notify('Ticket imprimé avec succès', 'success');
+      } catch (e: any) {
+        notify(e?.toString() || 'Erreur impression', 'error');
+      }
+    } else {
+      // Web: open printable popup
+      const pw = parseInt(localStorage.getItem('aztea_printer_width') || '80');
+      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Ticket</title><style>@page{size:${pw}mm auto;margin:0}body{font-family:'Courier New',monospace;font-size:${pw===58?'10px':'12px'};width:${pw}mm;margin:0 auto;padding:3mm;color:#000}.c{text-align:center}.b{font-weight:bold}.d{border-top:1px dashed #000;margin:3px 0}.r{display:flex;justify-content:space-between}</style></head><body>`
+        + `<div class="c b">AZTEA PHARMACY & POS</div>`
+        + `<div class="c" style="font-size:9px">Brazzaville, Congo</div>`
+        + `<div class="c" style="font-size:9px">Tel: +242 05 656 0299</div>`
+        + `<div class="d"></div>`
+        + `<div>Ticket: ${sale.receipt_number}</div>`
+        + `<div>Date: ${new Date(sale.sold_at).toLocaleString('fr-FR')}</div>`
+        + `<div>Caissier: ${user?.name || 'Inconnu'}</div>`
+        + `<div class="d"></div>`
+        + sale.items.map(it => `<div class="r"><span>${it.product_name}</span><span>${it.quantity}x${it.unit_price}F</span></div>`).join('')
+        + `<div class="d"></div>`
+        + `<div class="r b"><span>Sous-total:</span><span>${sale.subtotal} F</span></div>`
+        + (sale.discount_total > 0 ? `<div class="r"><span>Remise:</span><span>-${sale.discount_total} F</span></div>` : '')
+        + `<div class="d"></div>`
+        + `<div class="r b"><span>NET A PAYER:</span><span>${sale.total} F</span></div>`
+        + `<div class="d"></div>`
+        + `<div>Mode: ${sale.payment_method === 'cash' ? 'Espèces' : sale.payment_method === 'mobile_money' ? 'Mobile Money' : 'Carte'}</div>`
+        + `<div class="d"></div>`
+        + `<div class="c b">*** MERCI DE VOTRE VISITE ***</div>`
+        + `<script>window.onload=function(){window.print();setTimeout(function(){window.close()},800)}<\/script>`
+        + `</body></html>`;
+      const w = window.open('', '_blank', 'width=400,height=600');
+      if (w) { w.document.write(html); w.document.close(); }
+      else { notify('Popup bloqué par le navigateur', 'warning'); }
+    }
+  };
 
   // Load products, stock, and categories from API
   const loadData = async () => {
@@ -96,17 +178,20 @@ export default function POS() {
       addToCart(matched);
       setBarcodeInput('');
     } else {
-      alert(`Produit introuvable pour le code-barres: ${barcodeInput}`);
+      notify(`Produit introuvable pour le code-barres: ${barcodeInput}`, 'warning');
     }
   };
 
   const addToCart = (product: POSProduct) => {
+    if (product.stock <= 0) {
+      notify('Ce produit est en rupture de stock.', 'warning');
+      return;
+    }
     setCart(currentCart => {
       const existing = currentCart.find(item => item.product.id === product.id);
-      
       if (existing) {
         if (existing.quantity >= product.stock) {
-          alert(`Stock insuffisant. Max disponible : ${product.stock}`);
+          setTimeout(() => notify(`Stock insuffisant. Max disponible : ${product.stock}`, 'warning'), 0);
           return currentCart;
         }
         return currentCart.map(item => 
@@ -115,12 +200,6 @@ export default function POS() {
             : item
         );
       }
-      
-      if (product.stock <= 0) {
-        alert("Ce produit est en rupture de stock.");
-        return currentCart;
-      }
-      
       return [...currentCart, { product, quantity: 1 }];
     });
   };
@@ -132,7 +211,7 @@ export default function POS() {
           const newQty = item.quantity + delta;
           if (newQty <= 0) return null;
           if (newQty > item.product.stock) {
-            alert(`Stock insuffisant. Max disponible : ${item.product.stock}`);
+            setTimeout(() => notify(`Stock insuffisant. Max disponible : ${item.product.stock}`, 'warning'), 0);
             return item;
           }
           return { ...item, quantity: newQty };
@@ -157,13 +236,12 @@ export default function POS() {
     if (cart.length === 0 || isSubmitting) return;
 
     if (paymentMethod === 'cash' && amountReceived && numericAmountReceived < total) {
-      alert("Le montant reçu est insuffisant.");
+      notify('Le montant reçu est insuffisant.', 'warning');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      // Map payment methods to backend expectations: 'cash' -> 'cash', 'momo' -> 'mobile_money', 'card' -> 'card'
       const apiPaymentMethod = paymentMethod === 'momo' ? 'mobile_money' : paymentMethod;
 
       const createdSale = await api.sales.create({
@@ -178,20 +256,19 @@ export default function POS() {
         })),
       });
 
-      // Update receipt preview
       setReceiptData(createdSale);
       setShowReceiptModal(true);
 
-      // Reset checkout states
+      // Auto-print the receipt
+      await printReceipt(createdSale);
+
       setCart([]);
       setDiscount(0);
       setAmountReceived('');
-      
-      // Reload products to get latest stock levels after the sale
       loadData();
     } catch (e: any) {
       console.error(e);
-      alert(e.message || "Erreur lors de la validation de la vente.");
+      notify(e.message || 'Erreur lors de la validation de la vente.', 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -199,12 +276,24 @@ export default function POS() {
 
   // Filter products by search text and category selection
   const filteredProducts = products.filter(p => {
-    const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.barcode.includes(searchQuery);
+    const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || (p.barcode && p.barcode.includes(searchQuery));
     const matchesCategory = categoryFilter === 'all' || p.categoryId === categoryFilter;
     return matchesSearch && matchesCategory;
   });
 
   return (
+    <>
+    {/* Toast notification */}
+    {notification && (
+      <div className={`fixed top-5 right-5 z-[200] px-5 py-3 rounded-2xl shadow-2xl text-xs font-bold flex items-center gap-3 max-w-xs animate-slide-up ${
+        notification.type === 'success' ? 'bg-emerald-500 text-white' :
+        notification.type === 'error' ? 'bg-rose-500 text-white' :
+        'bg-amber-500 text-white'
+      }`}>
+        <span className="flex-1">{notification.message}</span>
+        <button onClick={() => setNotification(null)} className="opacity-70 hover:opacity-100 text-sm cursor-pointer">✕</button>
+      </div>
+    )}
     <div className="h-[calc(100vh-10rem)] grid grid-cols-1 lg:grid-cols-12 gap-8 animate-slide-up select-none">
       
       {/* Product Selection Pane (Left) */}
@@ -555,9 +644,7 @@ export default function POS() {
                 Fermer
               </button>
               <button 
-                onClick={() => {
-                  alert(`Imprimer à nouveau sur : ${localStorage.getItem('aztea_default_printer') || 'Imprimante par défaut'}`);
-                }}
+                onClick={() => receiptData && printReceipt(receiptData)}
                 className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow-sm hover:bg-opacity-95 transition-all cursor-pointer flex items-center justify-center gap-1.5"
               >
                 <Printer className="w-3.5 h-3.5" />
@@ -568,5 +655,6 @@ export default function POS() {
         </div>
       )}
     </div>
+    </>
   );
 }
