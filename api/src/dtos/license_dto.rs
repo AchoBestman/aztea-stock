@@ -17,6 +17,7 @@ pub struct ActivateLicensePayload {
 #[derive(Serialize, ToSchema, Clone, Debug)]
 pub struct LicenseResponse {
     pub id: String,
+
     pub tenant_id: String,
     pub subscription_id: String,
     pub license_key_masked: String,

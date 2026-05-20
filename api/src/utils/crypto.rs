@@ -1,6 +1,8 @@
 use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, BlockEncryptMut, KeyIvInit};
 use rand::RngCore;
 use std::env;
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
+
 
 type Aes256CbcEnc = cbc::Encryptor<aes::Aes256>;
 type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
@@ -66,4 +68,39 @@ pub fn decrypt(text: &str) -> String {
         Ok(decrypted) => String::from_utf8(decrypted).unwrap_or_else(|_| text.to_string()),
         Err(_) => text.to_string(),
     }
+}
+
+fn is_valid_fingerprint_format(text: &str) -> bool {
+    text.starts_with("MAC@") && text.contains(":CPU_ID@") && text.contains(":OS@")
+}
+
+pub fn validate_and_decrypt_fingerprint(b64_fingerprint: &str) -> Result<String, String> {
+    let generic_err = "Empreinte non valide".to_string();
+
+    let combined_bytes = BASE64_STANDARD
+        .decode(b64_fingerprint)
+        .map_err(|_| generic_err.clone())?;
+
+    if combined_bytes.len() < IV_LENGTH {
+        return Err(generic_err.clone());
+    }
+
+    let (iv_bytes, enc_bytes) = combined_bytes.split_at(IV_LENGTH);
+
+    let key = get_key();
+    let iv: [u8; IV_LENGTH] = iv_bytes.try_into().map_err(|_| generic_err.clone())?;
+
+    let decryptor = Aes256CbcDec::new(&key.into(), &iv.into());
+    
+    let decrypted = decryptor.decrypt_padded_vec_mut::<Pkcs7>(enc_bytes)
+        .map_err(|_| generic_err.clone())?;
+
+    let decrypted_text = String::from_utf8(decrypted)
+        .map_err(|_| generic_err.clone())?;
+
+    if !is_valid_fingerprint_format(&decrypted_text) {
+        return Err(generic_err.clone());
+    }
+
+    Ok(decrypted_text)
 }

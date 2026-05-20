@@ -44,7 +44,11 @@ impl Config {
         let db_type = env::var("DB_TYPE")
             .unwrap_or_else(|_| {
                 if let Some(ref url) = database_url {
-                    if url.starts_with("sqlite:") { "sqlite".to_string() } else { "postgres".to_string() }
+                    if url.starts_with("sqlite:") {
+                        "sqlite".to_string()
+                    } else {
+                        "postgres".to_string()
+                    }
                 } else {
                     "postgres".to_string()
                 }
@@ -53,11 +57,15 @@ impl Config {
 
         let jwt_secret = env::var("JWT_SECRET")
             .unwrap_or_else(|_| "default_super_secret_key_for_azteastock_123456".to_string());
-        let port = env::var("PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(8080);
+        let port = env::var("PORT")
+            .ok()
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(8080);
         let rust_log = env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
 
         // Queue
-        let redis_url = env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+        let redis_url =
+            env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
         let queue_driver = env::var("QUEUE_DRIVER").unwrap_or_else(|_| "tokio_task".to_string());
 
         // Cloudflare
@@ -68,7 +76,10 @@ impl Config {
 
         // System SMTP fallback
         let smtp_host = env::var("SMTP_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-        let smtp_port = env::var("SMTP_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(1025);
+        let smtp_port = env::var("SMTP_PORT")
+            .ok()
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(1025);
         let smtp_secure = env::var("SMTP_SECURE")
             .map(|v| v.to_lowercase() == "true" || v == "1")
             .unwrap_or(false);
@@ -76,8 +87,8 @@ impl Config {
         let smtp_pass = env::var("SMTP_PASS").unwrap_or_else(|_| "null".to_string());
         let smtp_from = env::var("SMTP_FROM").unwrap_or_else(|_| "noreply@aztea.com".to_string());
 
-        let frontend_url = env::var("FRONTEND_URL")
-            .unwrap_or_else(|_| "http://localhost:3000".to_string());
+        let frontend_url =
+            env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:3000".to_string());
         let encryption_key = env::var("ENCRYPTION_KEY")
             .unwrap_or_else(|_| "a-very-secret-key-32-chars-long-!!".to_string());
 

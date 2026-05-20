@@ -1,4 +1,4 @@
-use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, QueryFilter, ColumnTrait, Set};
+use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, QueryFilter, ColumnTrait, Set, PaginatorTrait};
 use rand::Rng;
 use crate::{
     errors::ApiError,
@@ -54,9 +54,23 @@ impl LicenseService {
             return Err(ApiError::BadRequest("L'abonnement n'appartient pas à ce tenant".to_string()));
         }
 
+        let current_licenses_count = license::Entity::find()
+            .filter(license::Column::SubscriptionId.eq(&sub.id))
+            .filter(license::Column::RevokedAt.is_null()) // Optional: count only non-revoked ones
+            .count(db)
+            .await?;
+
+        if current_licenses_count >= sub.max_devices as u64 {
+            return Err(ApiError::BadRequest(format!(
+                "La limite d'appareils pour cet abonnement est atteinte ({} max)",
+                sub.max_devices
+            )));
+        }
+
         let id = uuid::Uuid::new_v4().to_string();
         let plain_key = Self::generate_random_key();
         let encrypted_key = encrypt(&plain_key);
+
 
         let lic = license::ActiveModel {
             id: Set(id.clone()),
@@ -164,8 +178,24 @@ impl LicenseService {
                     return Err(ApiError::BadRequest("Cette clé de licence a été révoquée ou est inactive".to_string()));
                 }
                 
-                if model.activated_at.is_some() && model.device_fingerprint != payload.device_fingerprint {
-                    return Err(ApiError::BadRequest("Cette clé de licence est déjà utilisée par un autre appareil".to_string()));
+                if let Some(payload_fp) = &payload.device_fingerprint {
+                    let decrypted_payload_fp = crate::utils::crypto::validate_and_decrypt_fingerprint(payload_fp)
+                        .map_err(|e| ApiError::BadRequest(format!("Empreinte invalide: {}", e)))?;
+                    
+                    if model.activated_at.is_some() {
+                        if let Some(stored_fp) = &model.device_fingerprint {
+                            let decrypted_stored_fp = crate::utils::crypto::validate_and_decrypt_fingerprint(stored_fp)
+                                .unwrap_or_else(|_| stored_fp.clone());
+                                
+                            if decrypted_stored_fp != decrypted_payload_fp {
+                                return Err(ApiError::BadRequest("Cette clé de licence est déjà utilisée par un autre appareil".to_string()));
+                            }
+                        } else {
+                            return Err(ApiError::BadRequest("Cette clé de licence est déjà utilisée".to_string()));
+                        }
+                    }
+                } else if model.activated_at.is_some() {
+                    return Err(ApiError::BadRequest("Empreinte de l'appareil (device_fingerprint) requise".to_string()));
                 }
 
                 let mut active_lic: license::ActiveModel = model.into();

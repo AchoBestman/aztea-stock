@@ -20,7 +20,7 @@ pub async fn check_license(
 ) -> Result<Response, StatusCode> {
     let db = match state.db.as_ref() {
         Some(db) => db,
-        None => return Ok(next.run(req).await),
+        None => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
 
     let claims = match req.extensions().get::<crate::middleware::auth::Claims>() {
@@ -43,32 +43,67 @@ pub async fn check_license(
         return Err(StatusCode::UNAUTHORIZED);
     }
 
+    // Extract device fingerprint from header
+    let fingerprint_header = match req.headers().get("x-device-fingerprint") {
+        Some(h) => match h.to_str() {
+            Ok(s) => s,
+            Err(_) => return Err(StatusCode::BAD_REQUEST),
+        },
+        None => {
+            tracing::warn!("[LicenseGuard] Tenant {} blocked — Missing x-device-fingerprint header", &claims.tenant_id);
+            return Err(StatusCode::FORBIDDEN);
+        }
+    };
+
+    let payload_raw = match crate::utils::crypto::validate_and_decrypt_fingerprint(fingerprint_header) {
+        Ok(raw) => raw,
+        Err(e) => {
+            tracing::warn!("[LicenseGuard] Tenant {} blocked — Invalid fingerprint: {}", &claims.tenant_id, e);
+            return Err(StatusCode::FORBIDDEN);
+        }
+    };
+
     // For non-system tenants: require an active, non-revoked license
-    let active_license = match license::Entity::find()
+    let active_licenses = match license::Entity::find()
         .filter(license::Column::TenantId.eq(&claims.tenant_id))
         .filter(license::Column::IsActive.eq(true))
         .filter(license::Column::RevokedAt.is_null())
-        .order_by_desc(license::Column::CreatedAt)
-        .one(db)
+        .filter(license::Column::ActivatedAt.is_not_null())
+        .all(db)
         .await
     {
-        Ok(lic) => lic,
+        Ok(lics) => lics,
         Err(e) => {
-            // Fail-open: if the table doesn't exist yet (e.g. test DB), let through
             tracing::warn!("[LicenseGuard] DB error querying licenses, fail-open: {}", e);
             return Ok(next.run(req).await);
         }
     };
 
-    if active_license.is_none() {
-        tracing::warn!(
-            "[LicenseGuard] Tenant {} blocked — no active license",
-            &claims.tenant_id
-        );
+    if active_licenses.is_empty() {
+        tracing::warn!("[LicenseGuard] Tenant {} blocked — no active license", &claims.tenant_id);
         return Err(StatusCode::PAYMENT_REQUIRED);
     }
 
-    let lic = active_license.unwrap();
+    let mut authorized_license = None;
+    for lic in &active_licenses {
+        if let Some(stored_fp) = &lic.device_fingerprint {
+            if let Ok(stored_raw) = crate::utils::crypto::validate_and_decrypt_fingerprint(stored_fp) {
+                if stored_raw == payload_raw {
+                    authorized_license = Some(lic);
+                    break;
+                }
+            }
+        }
+    }
+
+    let lic = match authorized_license {
+        Some(l) => l,
+        None => {
+            tracing::warn!("[LicenseGuard] Tenant {} blocked — device not authorized", &claims.tenant_id);
+            return Err(StatusCode::FORBIDDEN);
+        }
+    };
+
     let sub = match crate::models::subscription::Entity::find_by_id(&lic.subscription_id)
         .one(db)
         .await

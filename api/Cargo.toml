@@ -36,6 +36,7 @@ reqwest = { version = "0.12", features = ["json"] }
 # Swagger UI / OpenAPI documentation
 utoipa = { version = "4.2", features = ["axum_extras", "uuid", "chrono", "decimal"] }
 utoipa-swagger-ui = { version = "6", features = ["axum"] }
+base64 = "0.22"
 
 [dev-dependencies]
 http-body-util = "0.1"

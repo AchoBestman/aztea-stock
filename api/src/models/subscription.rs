@@ -11,6 +11,7 @@ pub struct Model {
     pub status: String,
     pub price_monthly: Decimal,
     pub currency: Option<String>,
+    pub max_devices: i32,
     pub started_at: DateTimeWithTimeZone,
     pub expires_at: DateTimeWithTimeZone,
     pub trial_ends_at: Option<DateTimeWithTimeZone>,

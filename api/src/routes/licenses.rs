@@ -15,3 +15,4 @@ pub fn public_router() -> Router<Arc<AppState>> {
         .route("/activate", post(activate_license))
         .route("/status", get(get_license_status))
 }
+
