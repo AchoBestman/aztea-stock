@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Edit2, Trash2, User } from 'lucide-react';
+import { Plus, Search, Trash2, User, ShieldCheck, ShieldOff, ToggleLeft, ToggleRight } from 'lucide-react';
 import { api, AdminUser, Role } from '../services/api';
 import { toast } from 'react-hot-toast';
 import { ConfirmModal } from '../components/ConfirmModal';
@@ -96,6 +96,26 @@ export default function Users() {
     }
   };
 
+  const handleToggleActive = async (user: AdminUser) => {
+    try {
+      await api.admin.users.setActive(user.id, !user.is_active);
+      fetchData();
+      toast.success(user.is_active ? `${user.name} est maintenant inactif.` : `${user.name} est maintenant actif.`);
+    } catch (error: any) {
+      toast.error(error.message || "Impossible de modifier le statut.");
+    }
+  };
+
+  const handleToggleTwoFactor = async (user: AdminUser) => {
+    try {
+      await api.admin.users.setTwoFactor(user.id, !user.two_factor_enabled);
+      fetchData();
+      toast.success(user.two_factor_enabled ? "2FA désactivé." : "2FA activé.");
+    } catch (error: any) {
+      toast.error(error.message || "Impossible de modifier le 2FA.");
+    }
+  };
+
   const filteredUsers = users.filter(u => 
     u.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
     u.email.toLowerCase().includes(searchQuery.toLowerCase())
@@ -130,13 +150,14 @@ export default function Users() {
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="border-b border-border text-muted-foreground font-bold bg-muted/10">
-                <th className="py-3.5 px-6">Nom</th>
-                <th className="py-3.5 px-4">Email</th>
-                <th className="py-3.5 px-4">Rôles</th>
-                <th className="py-3.5 px-6">Statut</th>
-                <th className="py-3.5 px-6 text-right">Actions</th>
-              </tr>
+                <tr className="border-b border-border text-muted-foreground font-bold bg-muted/10">
+                  <th className="py-3.5 px-6">Nom</th>
+                  <th className="py-3.5 px-4">Email</th>
+                  <th className="py-3.5 px-4">Rôles</th>
+                  <th className="py-3.5 px-4 text-center">Statut</th>
+                  <th className="py-3.5 px-4 text-center">2FA</th>
+                  <th className="py-3.5 px-6 text-right">Actions</th>
+                </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {loading ? (
@@ -164,16 +185,39 @@ export default function Users() {
                         ))}
                       </div>
                     </td>
-                    <td className="py-4 px-6">
-                      {user.is_active ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
-                          Actif
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-400">
-                          Inactif
-                        </span>
-                      )}
+                    <td className="py-4 px-4 text-center">
+                      <button
+                        onClick={() => handleToggleActive(user)}
+                        title={user.is_active ? 'Désactiver' : 'Activer'}
+                        className="cursor-pointer"
+                      >
+                        {user.is_active ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                            <ToggleRight className="w-3.5 h-3.5" /> Actif
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-muted text-muted-foreground">
+                            <ToggleLeft className="w-3.5 h-3.5" /> Inactif
+                          </span>
+                        )}
+                      </button>
+                    </td>
+                    <td className="py-4 px-4 text-center">
+                      <button
+                        onClick={() => handleToggleTwoFactor(user)}
+                        title={user.two_factor_enabled ? 'Désactiver 2FA' : 'Activer 2FA'}
+                        className="cursor-pointer"
+                      >
+                        {user.two_factor_enabled ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                            <ShieldCheck className="w-3.5 h-3.5" /> Activé
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-muted text-muted-foreground">
+                            <ShieldOff className="w-3.5 h-3.5" /> Non
+                          </span>
+                        )}
+                      </button>
                     </td>
                     <td className="py-4 px-6 text-right">
                       <button

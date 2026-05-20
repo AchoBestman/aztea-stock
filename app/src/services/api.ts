@@ -207,6 +207,7 @@ export interface AdminUser {
   email: string;
   roles: string[];
   is_active: boolean;
+  two_factor_enabled: boolean;
   tenant_id: string;
   created_at: string;
 }
@@ -566,6 +567,16 @@ export const api = {
       delete: (id: string) =>
         request<{success: boolean; message: string}>(`/admin/users/${id}`, {
           method: 'DELETE',
+        }),
+      setActive: (userId: string, isActive: boolean) =>
+        request<any>('/auth/profile', {
+          method: 'PUT',
+          body: JSON.stringify({ user_id: userId, is_active: isActive }),
+        }),
+      setTwoFactor: (userId: string, twoFactorEnabled: boolean) =>
+        request<any>('/admin/users/two-factor', {
+          method: 'POST',
+          body: JSON.stringify({ user_id: userId, two_factor_enabled: twoFactorEnabled }),
         }),
     },
     roles: {
