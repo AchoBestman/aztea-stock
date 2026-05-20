@@ -28,15 +28,33 @@ pub struct SendPasswordResetPayload {
 
 #[derive(Serialize, ToSchema, Clone, Debug)]
 pub struct UserResponse {
+    #[schema(example = "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d")]
     pub id: String,
+    #[schema(example = "cf4beab2-e84e-471e-90ec-c5bf6c9c4c22")]
     pub tenant_id: String,
+    #[schema(example = "Jean Dupont")]
     pub name: String,
+    #[schema(example = "jean.dupont@example.com")]
     pub email: String,
+    #[schema(example = true)]
     pub is_active: Option<bool>,
+    #[schema(example = false)]
     pub two_factor_enabled: bool,
+    #[schema(example = json!(["Vendeur", "Gestionnaire"]))]
     pub roles: Vec<String>,
+    #[schema(example = "2026-05-20T10:00:00Z")]
     pub created_at: String,
+    #[schema(example = "2026-05-20T10:00:00Z")]
     pub updated_at: String,
+}
+
+#[derive(Serialize, ToSchema, Clone, Debug)]
+pub struct PaginatedUserResponse {
+    pub data: Vec<UserResponse>,
+    pub total: u64,
+    pub page: u64,
+    pub per_page: u64,
+    pub total_pages: u64,
 }
 
 #[derive(Serialize, ToSchema, Clone, Debug)]

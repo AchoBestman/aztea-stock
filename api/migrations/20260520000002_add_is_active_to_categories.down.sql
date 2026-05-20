@@ -1,0 +1,2 @@
+-- Down migration: dropping columns is not directly supported in all sqlite versions without rebuild,
+-- but we define it as empty/commented for standard sql compatibility.

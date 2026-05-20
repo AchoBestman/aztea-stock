@@ -25,6 +25,7 @@ pub struct AppState {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Load environment variables and trigger rebuild
     dotenvy::dotenv().ok();
     
     // Initialize tracing safely with EnvFilter
@@ -68,10 +69,10 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     let licensed = Router::new()
         .nest("/api/v1/categories", routes::categories::router())
         .nest("/api/v1/products", routes::products::router())
-        .nest("/api/v1/sales", routes::sales::router())
         .nest("/api/v1/stock", routes::stock::router())
-        .nest("/api/v1/sync", routes::sync::router())
         .nest("/api/v1/reports", routes::reports::router())
+        // Gescom — ventes, achats, alertes, sync/logs
+        .nest("/api/v1", routes::gescom::router())
         .nest("/api/v1/admin", routes::role_routes::router()
             .merge(routes::tenant_routes::router())
             .merge(routes::user_routes::router())

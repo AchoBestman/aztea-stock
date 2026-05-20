@@ -5,3 +5,6 @@ pub mod permission_controller;
 pub mod subscription_controller;
 pub mod license_controller;
 pub mod category_controller;
+pub mod product_controller;
+pub mod stock_controller;
+pub mod gescom_controller;

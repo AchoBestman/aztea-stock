@@ -25,4 +25,13 @@ pub mod tenant_tests;
 #[path = "routes/role.tests.rs"]
 pub mod role_tests;
 
+#[path = "routes/category.tests.rs"]
+pub mod category_tests;
+
+#[path = "routes/stock.tests.rs"]
+pub mod stock_tests;
+
+#[path = "routes/gescom.tests.rs"]
+pub mod gescom_tests;
+
 pub mod helpers;

@@ -6,3 +6,6 @@ pub mod permission_service;
 pub mod subscription_service;
 pub mod license_service;
 pub mod category_service;
+pub mod product_service;
+pub mod stock_service;
+pub mod gescom_service;

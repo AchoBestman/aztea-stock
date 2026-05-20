@@ -1,18 +1,24 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
-#[sea_orm(table_name = "categories")]
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
+#[sea_orm(table_name = "products")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub id: String,
     pub tenant_id: String,
+    pub category_id: Option<String>,
+    pub barcode: Option<String>,
     pub name: String,
     pub description: Option<String>,
-    pub color: Option<String>,
-    pub icon: Option<String>,
-    pub parent_id: Option<String>,
+    pub brand: Option<String>,
+    pub unit: String,
+    pub purchase_price: f64,
+    pub selling_price: f64,
+    pub tax_rate: f64,
+    pub image_url: Option<String>,
     pub is_active: bool,
+    pub requires_prescription: bool,
     pub created_at: String,
     pub updated_at: String,
     pub deleted_at: Option<String>,
@@ -29,18 +35,24 @@ pub enum Relation {
     )]
     Tenant,
     #[sea_orm(
-        belongs_to = "Entity",
-        from = "Column::ParentId",
-        to = "Column::Id",
+        belongs_to = "super::category::Entity",
+        from = "Column::CategoryId",
+        to = "super::category::Column::Id",
         on_update = "NoAction",
         on_delete = "SetNull"
     )]
-    ParentCategory,
+    Category,
 }
 
 impl Related<super::tenant::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Tenant.def()
+    }
+}
+
+impl Related<super::category::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Category.def()
     }
 }
 

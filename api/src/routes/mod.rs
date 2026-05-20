@@ -13,6 +13,7 @@ pub mod stock;
 pub mod subscriptions;
 pub mod sync;
 pub mod licenses;
+pub mod gescom;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -24,8 +25,11 @@ pub mod licenses;
         auth::forgot_password,
         auth::reset_password,
         auth::verify_otp,
-        products::list_products,
-        products::get_product,
+        crate::controllers::product_controller::create_product,
+        crate::controllers::product_controller::list_products,
+        crate::controllers::product_controller::get_product,
+        crate::controllers::product_controller::update_product,
+        crate::controllers::product_controller::delete_product,
         crate::controllers::role_controller::list_roles,
         crate::controllers::role_controller::get_role,
         crate::controllers::role_controller::create_role,
@@ -56,6 +60,32 @@ pub mod licenses;
         crate::controllers::category_controller::create_category,
         crate::controllers::category_controller::update_category,
         crate::controllers::category_controller::delete_category,
+        crate::controllers::stock_controller::create_stock_item,
+        crate::controllers::stock_controller::list_stock_items,
+        crate::controllers::stock_controller::get_stock_item,
+        crate::controllers::stock_controller::update_stock_item,
+        crate::controllers::stock_controller::delete_stock_item,
+        crate::controllers::stock_controller::create_stock_movement,
+        crate::controllers::stock_controller::list_stock_movements,
+        // Ventes
+        crate::controllers::gescom_controller::create_sale,
+        crate::controllers::gescom_controller::list_sales,
+        crate::controllers::gescom_controller::get_sale,
+        crate::controllers::gescom_controller::void_sale,
+        crate::controllers::gescom_controller::refund_sale,
+        crate::controllers::gescom_controller::get_sale_receipt,
+        // Achats
+        crate::controllers::gescom_controller::create_purchase,
+        crate::controllers::gescom_controller::list_purchases,
+        crate::controllers::gescom_controller::get_purchase,
+        crate::controllers::gescom_controller::cancel_purchase,
+        // Alertes
+        crate::controllers::gescom_controller::list_alerts,
+        crate::controllers::gescom_controller::mark_alert_read,
+        crate::controllers::gescom_controller::mark_all_alerts_read,
+        // Synchronisation
+        crate::controllers::gescom_controller::create_sync_log,
+        crate::controllers::gescom_controller::list_sync_logs,
     ),
     components(
         schemas(
@@ -63,9 +93,7 @@ pub mod licenses;
             auth::LoginPayload,
             auth::LoginResponse,
             auth::UserProfile,
-            products::Product,
-            products::PaginatedMeta,
-            products::PaginatedProductResponse,
+
             crate::dtos::response_role_dto::RoleResponse,
             crate::dtos::create_role_dto::CreateRolePayload,
             crate::dtos::update_role_dto::UpdateRolePayload,
@@ -86,19 +114,59 @@ pub mod licenses;
             crate::dtos::user_dto::UserProfileTenantResponse,
             crate::dtos::user_dto::UserProfileResponse,
             crate::dtos::user_dto::UpdateProfilePayload,
+            crate::dtos::user_dto::PaginatedUserResponse,
             auth::ForgotPasswordPayload,
             auth::ResetPasswordPayload,
             auth::VerifyOtpPayload,
             crate::dtos::subscription_dto::CreateSubscriptionPayload,
             crate::dtos::subscription_dto::SubscriptionResponse,
+            crate::dtos::subscription_dto::PaginatedSubscriptionResponse,
             crate::dtos::license_dto::GenerateLicensePayload,
             crate::dtos::license_dto::ActivateLicensePayload,
             crate::dtos::license_dto::LicenseResponse,
             crate::dtos::license_dto::FullLicenseResponse,
             crate::dtos::license_dto::LicenseStatusResponse,
+            crate::dtos::license_dto::PaginatedLicenseResponse,
+            crate::dtos::tenant_dto::PaginatedTenantResponse,
+            crate::dtos::response_role_dto::PaginatedRoleResponse,
             crate::dtos::category_dto::CreateCategoryPayload,
             crate::dtos::category_dto::UpdateCategoryPayload,
             crate::dtos::category_dto::CategoryResponse,
+            crate::dtos::category_dto::PaginatedCategoryResponse,
+            crate::dtos::product_dto::CreateProductPayload,
+            crate::dtos::product_dto::UpdateProductPayload,
+            crate::dtos::product_dto::ProductResponse,
+            crate::dtos::product_dto::PaginatedProductResponse,
+            crate::dtos::stock_dto::CreateStockItemPayload,
+            crate::dtos::stock_dto::UpdateStockItemPayload,
+            crate::dtos::stock_dto::StockItemResponse,
+            crate::dtos::stock_dto::PaginatedStockItemResponse,
+            crate::dtos::stock_dto::CreateStockMovementPayload,
+            crate::dtos::stock_dto::StockMovementResponse,
+            crate::dtos::stock_dto::PaginatedStockMovementResponse,
+            // Gescom — Ventes
+            crate::dtos::gescom_dto::CreateSalePayload,
+            crate::dtos::gescom_dto::CreateSaleItemPayload,
+            crate::dtos::gescom_dto::RefundSalePayload,
+            crate::dtos::gescom_dto::RefundItemPayload,
+            crate::dtos::gescom_dto::SaleItemResponse,
+            crate::dtos::gescom_dto::SaleResponse,
+            crate::dtos::gescom_dto::PaginatedSaleResponse,
+            crate::dtos::gescom_dto::ReceiptPrintResponse,
+            crate::dtos::gescom_dto::ReceiptItemLine,
+            // Gescom — Achats
+            crate::dtos::gescom_dto::CreatePurchasePayload,
+            crate::dtos::gescom_dto::CreatePurchaseItemPayload,
+            crate::dtos::gescom_dto::PurchaseItemResponse,
+            crate::dtos::gescom_dto::PurchaseResponse,
+            crate::dtos::gescom_dto::PaginatedPurchaseResponse,
+            // Gescom — Alertes
+            crate::dtos::gescom_dto::AlertResponse,
+            crate::dtos::gescom_dto::PaginatedAlertResponse,
+            // Gescom — Sync
+            crate::dtos::gescom_dto::CreateSyncLogPayload,
+            crate::dtos::gescom_dto::SyncLogResponse,
+            crate::dtos::gescom_dto::PaginatedSyncLogResponse,
         )
     ),
     modifiers(&SecurityAddon),
@@ -112,7 +180,12 @@ pub mod licenses;
         (name = "Admin - Users", description = "Tenant users administration management"),
         (name = "Admin - Subscriptions", description = "Subscription management (system only)"),
         (name = "Admin - Licenses", description = "License generation & management (system only)"),
-        (name = "Categories", description = "Product category management")
+        (name = "Categories", description = "Product category management"),
+        (name = "Stock", description = "Stock items and movements management"),
+        (name = "Ventes", description = "Gestion des ventes (enregistrement, annulation, remboursement, reçu)"),
+        (name = "Achats", description = "Gestion des approvisionnements fournisseurs"),
+        (name = "Alertes", description = "Journal des alertes de pénurie et de stock bas"),
+        (name = "Synchronisation", description = "Journal de synchronisation offline/online")
     )
 )]
 pub struct ApiDoc;

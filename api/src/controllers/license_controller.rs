@@ -41,7 +41,7 @@ pub async fn generate_license(
     path = "/api/v1/admin/licenses",
     params(PaginationParams),
     responses(
-        (status = 200, description = "Liste paginée des licences."),
+        (status = 200, description = "Liste paginée des licences.", body = PaginatedLicenseResponse),
     ),
     security(("bearerAuth" = [])),
     tag = "Admin - Licenses"
@@ -50,7 +50,7 @@ pub async fn list_licenses(
     Extension(claims): Extension<Claims>,
     State(state): State<Arc<AppState>>,
     Query(params): Query<PaginationParams>,
-) -> Result<Json<crate::utils::pagination::PaginatedResponse<LicenseResponse>>, ApiError> {
+) -> Result<Json<crate::dtos::license_dto::PaginatedLicenseResponse>, ApiError> {
     let db = state.db.as_ref().ok_or_else(|| {
         ApiError::Internal("Base de données indisponible".to_string())
     })?;
@@ -72,7 +72,13 @@ pub async fn list_licenses(
     }
 
     let lics = LicenseService::list_licenses(db, params, enforce_tenant_id).await?;
-    Ok(Json(lics))
+    Ok(Json(crate::dtos::license_dto::PaginatedLicenseResponse {
+        data: lics.data,
+        total: lics.total,
+        page: lics.page,
+        per_page: lics.per_page,
+        total_pages: lics.total_pages,
+    }))
 }
 
 /// Route utilisable par un tenant pour consulter l'état de sa licence active

@@ -4,7 +4,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use sea_orm::{EntityTrait, QueryFilter, ColumnTrait, QueryOrder};
+use sea_orm::{EntityTrait, QueryFilter, ColumnTrait};
 use std::sync::Arc;
 use crate::AppState;
 use crate::models::{license, tenant};

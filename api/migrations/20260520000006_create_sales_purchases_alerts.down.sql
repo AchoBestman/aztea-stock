@@ -1,0 +1,6 @@
+DROP TABLE IF EXISTS sync_log;
+DROP TABLE IF EXISTS alerts;
+DROP TABLE IF EXISTS purchase_items;
+DROP TABLE IF EXISTS purchases;
+DROP TABLE IF EXISTS sale_items;
+DROP TABLE IF EXISTS sales;

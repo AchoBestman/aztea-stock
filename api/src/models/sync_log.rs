@@ -2,20 +2,19 @@ use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
-#[sea_orm(table_name = "categories")]
+#[sea_orm(table_name = "sync_log")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub id: String,
     pub tenant_id: String,
-    pub name: String,
-    pub description: Option<String>,
-    pub color: Option<String>,
-    pub icon: Option<String>,
-    pub parent_id: Option<String>,
-    pub is_active: bool,
-    pub created_at: String,
-    pub updated_at: String,
-    pub deleted_at: Option<String>,
+    pub device_id: String,
+    pub sync_type: Option<String>,
+    pub status: Option<String>,
+    pub records_pushed: i32,
+    pub records_pulled: i32,
+    pub error_message: Option<String>,
+    pub started_at: String,
+    pub finished_at: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -28,14 +27,6 @@ pub enum Relation {
         on_delete = "Cascade"
     )]
     Tenant,
-    #[sea_orm(
-        belongs_to = "Entity",
-        from = "Column::ParentId",
-        to = "Column::Id",
-        on_update = "NoAction",
-        on_delete = "SetNull"
-    )]
-    ParentCategory,
 }
 
 impl Related<super::tenant::Entity> for Entity {

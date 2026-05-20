@@ -16,6 +16,13 @@ use crate::{
 #[derive(Deserialize, IntoParams)]
 pub struct ListCategoriesQuery {
     pub tenant_id: Option<String>,
+    pub parent_id: Option<String>,
+    pub is_active: Option<bool>,
+    pub page: Option<u64>,
+    pub per_page: Option<u64>,
+    pub search: Option<String>,
+    pub order_by: Option<String>,
+    pub order_type: Option<String>,
 }
 
 #[utoipa::path(
@@ -23,7 +30,7 @@ pub struct ListCategoriesQuery {
     path = "/api/v1/categories",
     params(ListCategoriesQuery),
     responses(
-        (status = 200, description = "Liste des catégories récupérée avec succès.", body = Vec<CategoryResponse>),
+        (status = 200, description = "Liste des catégories récupérée avec succès.", body = PaginatedCategoryResponse),
         (status = 401, description = "Authentification requise.")
     ),
     security(
@@ -35,15 +42,41 @@ pub async fn list_categories(
     Query(query): Query<ListCategoriesQuery>,
     Extension(claims): Extension<Claims>,
     State(state): State<Arc<AppState>>,
-) -> Result<Json<Vec<CategoryResponse>>, ApiError> {
+) -> Result<Json<crate::dtos::category_dto::PaginatedCategoryResponse>, ApiError> {
     let db = state.db.as_ref().ok_or_else(|| {
         ApiError::Internal("La base de données n'est pas disponible".to_string())
     })?;
 
     require_permission(db, &claims.sub, "can_read_category").await?;
 
-    let categories = CategoryService::list_categories(db, &claims.sub, &claims.tenant_id, query.tenant_id).await?;
-    Ok(Json(categories))
+    let pagination_params = crate::utils::pagination::PaginationParams {
+        page: query.page,
+        per_page: query.per_page,
+        search: query.search,
+        start_date: None,
+        end_date: None,
+        tenant_id: query.tenant_id.clone(),
+        order_by: query.order_by,
+        order_type: query.order_type,
+    };
+
+    let categories = CategoryService::list_categories(
+        db,
+        &claims.sub,
+        &claims.tenant_id,
+        query.tenant_id,
+        query.parent_id,
+        query.is_active,
+        pagination_params,
+    ).await?;
+
+    Ok(Json(crate::dtos::category_dto::PaginatedCategoryResponse {
+        data: categories.data,
+        total: categories.total,
+        page: categories.page,
+        per_page: categories.per_page,
+        total_pages: categories.total_pages,
+    }))
 }
 
 #[utoipa::path(

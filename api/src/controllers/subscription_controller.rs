@@ -41,7 +41,7 @@ pub async fn create_subscription(
     path = "/api/v1/admin/subscriptions",
     params(PaginationParams),
     responses(
-        (status = 200, description = "Liste paginée des abonnements."),
+        (status = 200, description = "Liste paginée des abonnements.", body = PaginatedSubscriptionResponse),
     ),
     security(("bearerAuth" = [])),
     tag = "Admin - Subscriptions"
@@ -50,7 +50,7 @@ pub async fn list_subscriptions(
     Extension(claims): Extension<Claims>,
     State(state): State<Arc<AppState>>,
     Query(params): Query<PaginationParams>,
-) -> Result<Json<crate::utils::pagination::PaginatedResponse<SubscriptionResponse>>, ApiError> {
+) -> Result<Json<crate::dtos::subscription_dto::PaginatedSubscriptionResponse>, ApiError> {
     let db = state.db.as_ref().ok_or_else(|| {
         ApiError::Internal("Base de données indisponible".to_string())
     })?;
@@ -75,5 +75,11 @@ pub async fn list_subscriptions(
     }
 
     let subs = SubscriptionService::list_subscriptions(db, params, enforce_tenant_id).await?;
-    Ok(Json(subs))
+    Ok(Json(crate::dtos::subscription_dto::PaginatedSubscriptionResponse {
+        data: subs.data,
+        total: subs.total,
+        page: subs.page,
+        per_page: subs.per_page,
+        total_pages: subs.total_pages,
+    }))
 }

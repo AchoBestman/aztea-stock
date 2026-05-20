@@ -91,4 +91,194 @@ pub async fn setup_schema(db: &DatabaseConnection) {
             FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE
         );
     ".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "
+        CREATE TABLE IF NOT EXISTS categories (
+            id TEXT PRIMARY KEY,
+            tenant_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            color TEXT,
+            icon TEXT,
+            parent_id TEXT,
+            is_active BOOLEAN NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            deleted_at TEXT,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+            FOREIGN KEY (parent_id) REFERENCES categories(id) ON DELETE SET NULL
+        );
+    ".to_string())).await.unwrap();
+
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "
+        CREATE TABLE IF NOT EXISTS products (
+            id TEXT PRIMARY KEY,
+            tenant_id TEXT NOT NULL,
+            category_id TEXT,
+            barcode TEXT,
+            name TEXT NOT NULL,
+            description TEXT,
+            brand TEXT,
+            unit TEXT NOT NULL DEFAULT 'unité',
+            purchase_price REAL NOT NULL DEFAULT 0.0,
+            selling_price REAL NOT NULL DEFAULT 0.0,
+            tax_rate REAL NOT NULL DEFAULT 0.0,
+            image_url TEXT,
+            is_active BOOLEAN NOT NULL DEFAULT 1,
+            requires_prescription BOOLEAN NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            deleted_at TEXT,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+            FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
+            UNIQUE(tenant_id, barcode)
+        );
+    ".to_string())).await.unwrap();
+
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "
+        CREATE TABLE IF NOT EXISTS stock_items (
+            id                  TEXT PRIMARY KEY,
+            tenant_id           TEXT NOT NULL,
+            product_id          TEXT NOT NULL,
+            quantity            REAL NOT NULL DEFAULT 0.0,
+            quantity_reserved   REAL NOT NULL DEFAULT 0.0,
+            low_stock_threshold REAL NOT NULL DEFAULT 5.0,
+            unit_location       TEXT,
+            batch_number        TEXT,
+            expiry_date         TEXT,
+            updated_at          TEXT NOT NULL,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+            FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+            UNIQUE (tenant_id, product_id)
+        );
+    ".to_string())).await.unwrap();
+
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "
+        CREATE TABLE IF NOT EXISTS stock_movements (
+            id              TEXT PRIMARY KEY,
+            tenant_id       TEXT NOT NULL,
+            product_id      TEXT NOT NULL,
+            user_id         TEXT,
+            movement_type   TEXT NOT NULL,
+            quantity_before REAL NOT NULL,
+            quantity_change REAL NOT NULL,
+            quantity_after  REAL NOT NULL,
+            reference_id    TEXT,
+            note            TEXT,
+            occurred_at     TEXT NOT NULL,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+            FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+        );
+    ".to_string())).await.unwrap();
+
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "
+        CREATE TABLE IF NOT EXISTS sales (
+            id              TEXT PRIMARY KEY,
+            tenant_id       TEXT NOT NULL,
+            user_id         TEXT,
+            receipt_number  TEXT NOT NULL,
+            customer_name   TEXT,
+            customer_phone  TEXT,
+            subtotal        REAL NOT NULL,
+            tax_total       REAL DEFAULT 0,
+            discount_total  REAL DEFAULT 0,
+            total           REAL NOT NULL,
+            amount_paid     REAL NOT NULL,
+            change_given    REAL DEFAULT 0,
+            payment_method  TEXT NOT NULL,
+            status          TEXT DEFAULT 'completed',
+            notes           TEXT,
+            sold_at         TEXT NOT NULL,
+            created_at      TEXT NOT NULL,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+        );
+    ".to_string())).await.unwrap();
+
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "
+        CREATE TABLE IF NOT EXISTS sale_items (
+            id              TEXT PRIMARY KEY,
+            tenant_id       TEXT NOT NULL,
+            sale_id         TEXT NOT NULL,
+            product_id      TEXT NOT NULL,
+            product_name    TEXT NOT NULL,
+            product_barcode TEXT,
+            quantity        REAL NOT NULL,
+            unit_price      REAL NOT NULL,
+            tax_rate        REAL DEFAULT 0,
+            discount        REAL DEFAULT 0,
+            line_total      REAL NOT NULL,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+            FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE,
+            FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+        );
+    ".to_string())).await.unwrap();
+
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "
+        CREATE TABLE IF NOT EXISTS purchases (
+            id              TEXT PRIMARY KEY,
+            tenant_id       TEXT NOT NULL,
+            user_id         TEXT,
+            supplier_name   TEXT,
+            supplier_phone  TEXT,
+            reference       TEXT,
+            total           REAL NOT NULL,
+            status          TEXT DEFAULT 'received',
+            notes           TEXT,
+            purchased_at    TEXT NOT NULL,
+            created_at      TEXT NOT NULL,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+        );
+    ".to_string())).await.unwrap();
+
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "
+        CREATE TABLE IF NOT EXISTS purchase_items (
+            id              TEXT PRIMARY KEY,
+            tenant_id       TEXT NOT NULL,
+            purchase_id     TEXT NOT NULL,
+            product_id      TEXT NOT NULL,
+            quantity        REAL NOT NULL,
+            unit_cost       REAL NOT NULL,
+            expiry_date     TEXT,
+            batch_number    TEXT,
+            line_total      REAL NOT NULL,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+            FOREIGN KEY (purchase_id) REFERENCES purchases(id) ON DELETE CASCADE,
+            FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+        );
+    ".to_string())).await.unwrap();
+
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "
+        CREATE TABLE IF NOT EXISTS alerts (
+            id              TEXT PRIMARY KEY,
+            tenant_id       TEXT NOT NULL,
+            product_id      TEXT,
+            alert_type      TEXT NOT NULL,
+            message         TEXT NOT NULL,
+            threshold       REAL,
+            current_qty     REAL,
+            is_read         BOOLEAN DEFAULT 0,
+            is_resolved     BOOLEAN DEFAULT 0,
+            triggered_at    TEXT NOT NULL,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+            FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+        );
+    ".to_string())).await.unwrap();
+
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "
+        CREATE TABLE IF NOT EXISTS sync_log (
+            id              TEXT PRIMARY KEY,
+            tenant_id       TEXT NOT NULL,
+            device_id       TEXT NOT NULL,
+            sync_type       TEXT,
+            status          TEXT,
+            records_pushed  INTEGER DEFAULT 0,
+            records_pulled  INTEGER DEFAULT 0,
+            error_message   TEXT,
+            started_at      TEXT NOT NULL,
+            finished_at     TEXT,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+        );
+    ".to_string())).await.unwrap();
 }

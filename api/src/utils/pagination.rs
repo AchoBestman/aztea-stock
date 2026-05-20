@@ -31,13 +31,6 @@ impl Default for PaginationParams {
 }
 
 #[derive(Serialize, ToSchema, Clone, Debug)]
-#[aliases(
-    PaginatedSubscriptionResponse = PaginatedResponse<crate::dtos::subscription_dto::SubscriptionResponse>,
-    PaginatedLicenseResponse = PaginatedResponse<crate::dtos::license_dto::LicenseResponse>,
-    PaginatedTenantResponse = PaginatedResponse<crate::dtos::tenant_dto::TenantResponse>,
-    PaginatedUserResponse = PaginatedResponse<crate::dtos::user_dto::UserResponse>,
-    PaginatedRoleResponse = PaginatedResponse<crate::dtos::response_role_dto::RoleResponse>
-)]
 pub struct PaginatedResponse<T> {
     pub data: Vec<T>,
     pub total: u64,

@@ -6,3 +6,6 @@ pub mod user_dto;
 pub mod subscription_dto;
 pub mod license_dto;
 pub mod category_dto;
+pub mod product_dto;
+pub mod stock_dto;
+pub mod gescom_dto;

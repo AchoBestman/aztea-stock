@@ -95,6 +95,7 @@ fn print_usage() {
 
 async fn run_migrations(pool: &AnyPool) -> Result<(), anyhow::Error> {
     println!("Running database migrations...");
+    // Embed and run migrations (force recompile)
     sqlx::migrate!("./migrations").run(pool).await?;
     println!("Migrations executed successfully.");
     Ok(())
@@ -195,6 +196,15 @@ async fn run_fresh(pool: &AnyPool, config: &config::Config) -> Result<(), anyhow
             "permissions",
             "licenses",
             "subscriptions",
+            "sync_log",
+            "alerts",
+            "purchase_items",
+            "purchases",
+            "sale_items",
+            "sales",
+            "stock_movements",
+            "stock_items",
+            "products",
             "categories",
             "tenants",
             "_sqlx_migrations",
@@ -214,31 +224,47 @@ async fn run_fresh(pool: &AnyPool, config: &config::Config) -> Result<(), anyhow
 async fn run_seeds(pool: &AnyPool) -> Result<(), anyhow::Error> {
     println!("Seeding database...");
 
-    // 1. Create System Tenant
-    let tenant_id = Uuid::new_v4().to_string();
-    let tenant_name = env::var("SYSTEM_TENANT_NAME")
-        .unwrap_or_else(|_| "Aztea Software (Système)".to_string());
-    let tenant_business_type = env::var("SYSTEM_TENANT_BUSINESS_TYPE")
-        .unwrap_or_else(|_| "both".to_string());
+    // 1. Create/Retrieve System Tenant
     let tenant_email = env::var("SYSTEM_TENANT_EMAIL")
         .unwrap_or_else(|_| "contact@aztea.com".to_string());
-    let tenant_phone = env::var("SYSTEM_TENANT_PHONE").ok();
-    let tenant_address = env::var("SYSTEM_TENANT_ADDRESS").ok();
 
-    sqlx::query(
-        "INSERT INTO tenants (id, name, business_type, email, phone, address, is_system, two_factor_enabled) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
-    )
-    .bind(&tenant_id)
-    .bind(&tenant_name)
-    .bind(&tenant_business_type)
-    .bind(&tenant_email)
-    .bind(tenant_phone)
-    .bind(tenant_address)
-    .bind(true)
-    .bind(false)
-    .execute(pool)
-    .await?;
-    println!("Created system tenant: {}", tenant_name);
+    let existing_tenant = sqlx::query("SELECT id FROM tenants WHERE email = $1")
+        .bind(&tenant_email)
+        .fetch_optional(pool)
+        .await?;
+
+    let tenant_id = match existing_tenant {
+        Some(row) => {
+            let id: String = row.try_get(0)?;
+            println!("System tenant already exists (ID: {}). Skipping insertion.", id);
+            id
+        }
+        None => {
+            let new_id = Uuid::new_v4().to_string();
+            let tenant_name = env::var("SYSTEM_TENANT_NAME")
+                .unwrap_or_else(|_| "Aztea Software (Système)".to_string());
+            let tenant_business_type = env::var("SYSTEM_TENANT_BUSINESS_TYPE")
+                .unwrap_or_else(|_| "both".to_string());
+            let tenant_phone = env::var("SYSTEM_TENANT_PHONE").ok();
+            let tenant_address = env::var("SYSTEM_TENANT_ADDRESS").ok();
+
+            sqlx::query(
+                "INSERT INTO tenants (id, name, business_type, email, phone, address, is_system, two_factor_enabled) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
+            )
+            .bind(&new_id)
+            .bind(&tenant_name)
+            .bind(&tenant_business_type)
+            .bind(&tenant_email)
+            .bind(tenant_phone)
+            .bind(tenant_address)
+            .bind(true)
+            .bind(false)
+            .execute(pool)
+            .await?;
+            println!("Created system tenant: {}", tenant_name);
+            new_id
+        }
+    };
 
     // 2. Create Permissions
     let permissions_data = vec![
@@ -259,11 +285,25 @@ async fn run_seeds(pool: &AnyPool) -> Result<(), anyhow::Error> {
         ("can_read_product", "Permet de lire les produits", "products"),
         ("can_update_product", "Permet de modifier les produits", "products"),
         ("can_delete_product", "Permet de supprimer les produits", "products"),
+        // Stock
+        ("can_read_stock", "Permet de lire les fiches stock et les mouvements", "stock"),
+        ("can_manage_stock", "Permet de créer et modifier les fiches stock et d'enregistrer des mouvements", "stock"),
         // Sales
         ("can_create_sale", "Permet d'enregistrer des ventes", "sales"),
         ("can_read_sale", "Permet de lire les ventes", "sales"),
         ("can_update_sale", "Permet de modifier les ventes", "sales"),
         ("can_delete_sale", "Permet de supprimer les ventes", "sales"),
+        // Purchases
+        ("can_create_purchase", "Permet de créer des achats", "purchases"),
+        ("can_read_purchase", "Permet de lire les achats", "purchases"),
+        ("can_update_purchase", "Permet de modifier les achats", "purchases"),
+        ("can_delete_purchase", "Permet de supprimer les achats", "purchases"),
+        // Alerts
+        ("can_read_alert", "Permet de lire les alertes", "alerts"),
+        ("can_manage_alert", "Permet de gérer/lire les alertes", "alerts"),
+        // Sync
+        ("can_read_sync_log", "Permet de lire le journal de sync", "sync"),
+        ("can_manage_sync_log", "Permet de gérer le journal de sync", "sync"),
         // Tenants
         ("can_create_tenant", "Permet de créer des tenants", "tenants"),
         ("can_read_tenant", "Permet de lire les tenants", "tenants"),
@@ -291,48 +331,86 @@ async fn run_seeds(pool: &AnyPool) -> Result<(), anyhow::Error> {
     let mut permission_ids = Vec::new();
 
     for (name, desc, group) in permissions_data {
-        let perm_id = Uuid::new_v4().to_string();
-        
-        let row = sqlx::query(
-            "INSERT INTO permissions (id, name, description, model_group) VALUES ($1, $2, $3, $4) RETURNING id"
-        )
-        .bind(&perm_id)
-        .bind(name)
-        .bind(desc)
-        .bind(group)
-        .fetch_one(pool)
-        .await?;
-        
-        let id: String = row.try_get(0)?;
-        permission_ids.push(id);
+        let existing_perm = sqlx::query("SELECT id FROM permissions WHERE name = $1")
+            .bind(name)
+            .fetch_optional(pool)
+            .await?;
+
+        let perm_id = match existing_perm {
+            Some(row) => {
+                row.try_get::<String, _>(0)?
+            }
+            None => {
+                let new_id = Uuid::new_v4().to_string();
+                sqlx::query(
+                    "INSERT INTO permissions (id, name, description, model_group) VALUES ($1, $2, $3, $4)"
+                )
+                .bind(&new_id)
+                .bind(name)
+                .bind(desc)
+                .bind(group)
+                .execute(pool)
+                .await?;
+                new_id
+            }
+        };
+        permission_ids.push(perm_id);
     }
     println!("Seeded {} permissions.", permission_ids.len());
 
     // 3. Create Super Admin Role for the system tenant
-    let super_admin_role_id = Uuid::new_v4().to_string();
     let role_name = "Super Admin";
-    
-    let role_row = sqlx::query(
-        "INSERT INTO roles (id, tenant_id, name, description) VALUES ($1, $2, $3, $4) RETURNING id"
-    )
-    .bind(&super_admin_role_id)
-    .bind(&tenant_id)
-    .bind(role_name)
-    .bind("Administrateur suprême du système avec tous les accès")
-    .fetch_one(pool)
-    .await?;
-    let actual_role_id: String = role_row.try_get(0)?;
-    println!("Created role: {}", role_name);
+    let existing_role = sqlx::query("SELECT id FROM roles WHERE tenant_id = $1 AND name = $2")
+        .bind(&tenant_id)
+        .bind(role_name)
+        .fetch_optional(pool)
+        .await?;
 
-    // 4. Assign all permissions to the Super Admin Role
-    for perm_id in &permission_ids {
-        sqlx::query("INSERT INTO role_permissions (role_id, permission_id) VALUES ($1, $2)")
-            .bind(&actual_role_id)
-            .bind(perm_id)
+    let super_admin_role_id = match existing_role {
+        Some(row) => {
+            let id: String = row.try_get(0)?;
+            println!("Role '{}' already exists (ID: {}). Skipping insertion.", role_name, id);
+            id
+        }
+        None => {
+            let new_id = Uuid::new_v4().to_string();
+            sqlx::query(
+                "INSERT INTO roles (id, tenant_id, name, description) VALUES ($1, $2, $3, $4)"
+            )
+            .bind(&new_id)
+            .bind(&tenant_id)
+            .bind(role_name)
+            .bind("Administrateur suprême du système avec tous les accès")
             .execute(pool)
             .await?;
+            println!("Created role: {}", role_name);
+            new_id
+        }
+    };
+
+    // 4. Assign all permissions to the Super Admin Role
+    let mut assigned_count = 0;
+    for perm_id in &permission_ids {
+        let existing_assignment = sqlx::query("SELECT 1 FROM role_permissions WHERE role_id = $1 AND permission_id = $2")
+            .bind(&super_admin_role_id)
+            .bind(perm_id)
+            .fetch_optional(pool)
+            .await?;
+
+        if existing_assignment.is_none() {
+            sqlx::query("INSERT INTO role_permissions (role_id, permission_id) VALUES ($1, $2)")
+                .bind(&super_admin_role_id)
+                .bind(perm_id)
+                .execute(pool)
+                .await?;
+            assigned_count += 1;
+        }
     }
-    println!("Assigned all permissions to Super Admin role.");
+    if assigned_count > 0 {
+        println!("Assigned {} new permissions to Super Admin role.", assigned_count);
+    } else {
+        println!("All permissions already assigned to Super Admin role.");
+    }
 
     // 5. Create default Roles for system tenant (Admin, Manager, User)
     let default_roles = vec![
@@ -341,44 +419,76 @@ async fn run_seeds(pool: &AnyPool) -> Result<(), anyhow::Error> {
         ("User", "Utilisateur standard"),
     ];
     for (name, desc) in default_roles {
-        let id = Uuid::new_v4().to_string();
-        sqlx::query("INSERT INTO roles (id, tenant_id, name, description) VALUES ($1, $2, $3, $4)")
-            .bind(&id)
+        let existing_default_role = sqlx::query("SELECT 1 FROM roles WHERE tenant_id = $1 AND name = $2")
             .bind(&tenant_id)
             .bind(name)
-            .bind(desc)
-            .execute(pool)
+            .fetch_optional(pool)
             .await?;
+
+        if existing_default_role.is_none() {
+            let new_id = Uuid::new_v4().to_string();
+            sqlx::query("INSERT INTO roles (id, tenant_id, name, description) VALUES ($1, $2, $3, $4)")
+                .bind(&new_id)
+                .bind(&tenant_id)
+                .bind(name)
+                .bind(desc)
+                .execute(pool)
+                .await?;
+            println!("Created default role: {}", name);
+        }
     }
-    println!("Seeded default roles (Admin, Manager, User) for system tenant.");
 
     // 6. Create Super Admin User
     let sa_email = env::var("SUPER_ADMIN_EMAIL").unwrap_or_else(|_| "superadmin@aztea.com".to_string());
-    let sa_password = env::var("SUPER_ADMIN_PASSWORD").unwrap_or_else(|_| "SuperSecurePassword123!".to_string());
-    let password_hash = hash(&sa_password, DEFAULT_COST)?;
+    let existing_user = sqlx::query("SELECT id FROM users WHERE tenant_id = $1 AND email = $2")
+        .bind(&tenant_id)
+        .bind(&sa_email)
+        .fetch_optional(pool)
+        .await?;
 
-    let user_id = Uuid::new_v4().to_string();
-    let user_row = sqlx::query(
-        "INSERT INTO users (id, tenant_id, name, email, password_hash, two_factor_enabled) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id"
-    )
-    .bind(&user_id)
-    .bind(&tenant_id)
-    .bind("Super Administrateur")
-    .bind(&sa_email)
-    .bind(&password_hash)
-    .bind(false)
-    .fetch_one(pool)
-    .await?;
-    let actual_user_id: String = user_row.try_get(0)?;
-    println!("Created Super Admin User with email: {}", sa_email);
+    let super_admin_user_id = match existing_user {
+        Some(row) => {
+            let id: String = row.try_get(0)?;
+            println!("Super Admin User already exists (ID: {}). Skipping insertion.", id);
+            id
+        }
+        None => {
+            let sa_password = env::var("SUPER_ADMIN_PASSWORD").unwrap_or_else(|_| "SuperSecurePassword123!".to_string());
+            let password_hash = hash(&sa_password, DEFAULT_COST)?;
+            let new_id = Uuid::new_v4().to_string();
+            sqlx::query(
+                "INSERT INTO users (id, tenant_id, name, email, password_hash, two_factor_enabled) VALUES ($1, $2, $3, $4, $5, $6)"
+            )
+            .bind(&new_id)
+            .bind(&tenant_id)
+            .bind("Super Administrateur")
+            .bind(&sa_email)
+            .bind(&password_hash)
+            .bind(false)
+            .execute(pool)
+            .await?;
+            println!("Created Super Admin User with email: {}", sa_email);
+            new_id
+        }
+    };
 
     // 7. Link Super Admin User to Super Admin Role
-    sqlx::query("INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2)")
-        .bind(&actual_user_id)
-        .bind(&actual_role_id)
-        .execute(pool)
+    let existing_user_role = sqlx::query("SELECT 1 FROM user_roles WHERE user_id = $1 AND role_id = $2")
+        .bind(&super_admin_user_id)
+        .bind(&super_admin_role_id)
+        .fetch_optional(pool)
         .await?;
-    println!("Assigned Super Admin role to user: {}", sa_email);
+
+    if existing_user_role.is_none() {
+        sqlx::query("INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2)")
+            .bind(&super_admin_user_id)
+            .bind(&super_admin_role_id)
+            .execute(pool)
+            .await?;
+        println!("Assigned Super Admin role to user: {}", sa_email);
+    } else {
+        println!("Super Admin role already assigned to user: {}", sa_email);
+    }
 
     println!("Seeding completed successfully!");
     Ok(())
