@@ -9,9 +9,13 @@ type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
 
 const IV_LENGTH: usize = 16;
 
+pub fn get_key_string() -> String {
+    env::var("ENCRYPTION_KEY")
+        .unwrap_or_else(|_| "a-very-secret-key-32-chars-long-!!".to_string())
+}
+
 fn get_key() -> [u8; 32] {
-    let key_str = env::var("ENCRYPTION_KEY")
-        .unwrap_or_else(|_| "a-very-secret-key-32-chars-long-!!".to_string());
+    let key_str = get_key_string();
     let mut key = [0u8; 32];
     let bytes = key_str.as_bytes();
     let len = bytes.len().min(32);

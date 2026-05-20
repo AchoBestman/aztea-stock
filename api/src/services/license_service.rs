@@ -228,37 +228,67 @@ impl LicenseService {
             .await?;
 
         match license {
-            None => Ok(crate::dtos::license_dto::LicenseStatusResponse {
-                has_active_license: false,
-                license_id: None,
-                subscription_plan: None,
-                expires_at: None,
-                days_remaining: None,
-                renewal_alert: false,
-            }),
+            None => {
+                let any_license = license::Entity::find()
+                    .filter(license::Column::TenantId.eq(tenant_id))
+                    .order_by_desc(license::Column::CreatedAt)
+                    .one(db)
+                    .await?;
+                
+                let status = if let Some(lic) = any_license {
+                    if lic.revoked_at.is_some() {
+                        "revoked".to_string()
+                    } else {
+                        "expired".to_string()
+                    }
+                } else {
+                    "trial".to_string()
+                };
+
+                Ok(crate::dtos::license_dto::LicenseStatusResponse {
+                    has_active_license: false,
+                    status,
+                    license_id: None,
+                    subscription_plan: None,
+                    expires_at: None,
+                    days_remaining: None,
+                    renewal_alert: false,
+                })
+            }
             Some(lic) => {
                 let sub = subscription::Entity::find_by_id(&lic.subscription_id)
                     .one(db)
                     .await?;
 
-                let (plan, expires_at, days_remaining, renewal_alert) = match sub {
-                    None => (None, None, None, false),
+                let (plan, expires_at, days_remaining, renewal_alert, sub_status) = match sub {
+                    None => (None, None, None, false, "expired".to_string()),
                     Some(s) => {
                         let expires = s.expires_at;
                         let now = chrono::Utc::now();
                         let days = (expires.with_timezone(&chrono::Utc) - now).num_days();
                         let alert = days <= 7;
+                        
+                        let computed_status = if s.status == "suspended" {
+                            "suspended".to_string()
+                        } else if s.status == "cancelled" || expires.with_timezone(&chrono::Utc) < now {
+                            "expired".to_string()
+                        } else {
+                            "active".to_string()
+                        };
+
                         (
                             Some(s.plan.clone()),
                             Some(expires.to_rfc3339()),
                             Some(days),
                             alert,
+                            computed_status,
                         )
                     }
                 };
 
                 Ok(crate::dtos::license_dto::LicenseStatusResponse {
-                    has_active_license: true,
+                    has_active_license: sub_status == "active",
+                    status: sub_status,
                     license_id: Some(lic.id),
                     subscription_plan: plan,
                     expires_at,

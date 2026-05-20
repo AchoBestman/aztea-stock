@@ -35,7 +35,7 @@ pub async fn list_permissions(
     require_permission(db, &claims.sub, "can_read_permission").await?;
 
     // 2. Fetch grouped permissions
-    let permissions = PermissionService::list_grouped_permissions(db).await?;
+    let permissions = PermissionService::list_grouped_permissions(db, &claims.tenant_id).await?;
     
     Ok(Json(permissions))
 }

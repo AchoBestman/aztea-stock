@@ -1674,3 +1674,28 @@ NEXTAUTH_URL=https://admin-stock.azteas.com
 
 *Document de spécifications AzteaStock v1.0 — Référence de développement complète*
 *Projet : aztea-stock/ | API : Rust/Axum | App : Tauri 2/React | Admin : Next.js 14*
+
+
+
+
+
+
+je ne vois pas le menus ge gestion des categories.
+
+dans Statistiques il faut permettre d'avoir aussi pour une periode bien definir qui sera un intervalle de date a choisir par le user et fair aussi exportation pdf. il faut aussi avoir un bon graphique de courbe sur cette page et connaitre aussi les tops 10 produits plus vendus, les tops 10 moins vendus. la moyenne de vente, l'ecart entre moins vendus a la moyenne, l'ecart entre moyenne et plus vendu. les ruptures de stocks.
+
+dans parametres mieux vaux recuperer dynamiquement les periphériques lié au terminal avec leur etat connecté ou deconnecté. quand le user choisir un peripherique et enregistre tout impression utilise ce periphérique.
+
+il faut l'endroit pour les scanner aussi afin de permettre au user le scanner a utiliser par defaut pour scanner les codes.
+
+API_BASE_URL doit etre recuperer de la valeur renseigner par Addresse ApI cloud. quand le user renseigne cette valeur il faut verifier dans le backend si cela correspond a l'api url definit pour le tenant is_system. si ca correspond accepte la modification dans l'app en local du user sinon refuse aussi le user qui fait cela doit avoir les permissions qu'il faut et il ne peut pas le faire sans envoyer une requete de demande de modification de api url qui doit etre valider par un user du tenant is_system. sur l'interface de connexion il faut permettre au user de changer api url et ce changement ne necessite pas de validation car c' est la connexion le cas ou les endpoints change ceux qui utilise l'app installer doit pouvoir changer sans renter dans l'app. cela doit etre permit si et seulement le user essaie de se connecter et obtient une erreur du genre le serveur ne peut etre atteindre dans ce cas automatiquement le champs de changement de endpoint doit apparaitre et ce ompte doit avoir les permissions pour le faire.
+
+donc API_BASE_URL doit pas avoir de valeur par defaut dans le logiciel.si une licence est activé il faut afficher la clé d'activation actuellement je vois aucune.
+
+interface produit je prefere une liste pour l' affiche et aussi travaille sur le modal d'ajout pour que cela soit bien centré.
+
+toute suppression necessite une confirmation et le user n'a pas la permission de faire une choix il avoir les boutons de faire la chose griser
+
+dans caisse meiux afficher le sproduits sous forme de liste aussi et possibilité de filtrer par categorie. donne possibilté de scanner un produit. si on scann tu lance une recherche si le produit et disponible affiche le directement dans  le panier
+
+dashboard on doit pouvoir voir les statistiques d'une des 365 jours passé

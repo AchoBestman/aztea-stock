@@ -358,6 +358,14 @@ impl GescomRepository {
             query = query.filter(sync_log::Column::DeviceId.eq(dev));
         }
 
+        if let Some(start) = params.start_date.as_ref() {
+            query = query.filter(sync_log::Column::StartedAt.gte(start.clone()));
+        }
+
+        if let Some(end) = params.end_date.as_ref() {
+            query = query.filter(sync_log::Column::StartedAt.lte(end.clone()));
+        }
+
         let page = params.page.unwrap_or(1);
         let per_page = params.per_page.unwrap_or(20);
 

@@ -62,6 +62,7 @@ pub struct FullLicenseResponse {
 #[derive(Serialize, ToSchema, Clone, Debug)]
 pub struct LicenseStatusResponse {
     pub has_active_license: bool,
+    pub status: String,
     pub license_id: Option<String>,
     pub subscription_plan: Option<String>,
     pub expires_at: Option<String>,

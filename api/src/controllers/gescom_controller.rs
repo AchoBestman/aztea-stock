@@ -55,6 +55,8 @@ pub struct ListAlertsQuery {
 pub struct ListSyncLogsQuery {
     pub tenant_id: Option<String>,
     pub device_id: Option<String>,
+    pub start_date: Option<String>,
+    pub end_date: Option<String>,
     pub page: Option<u64>,
     pub per_page: Option<u64>,
 }
@@ -600,8 +602,8 @@ pub async fn list_sync_logs(
         page: query.page,
         per_page: query.per_page,
         search: None,
-        start_date: None,
-        end_date: None,
+        start_date: query.start_date,
+        end_date: query.end_date,
         tenant_id: query.tenant_id,
         order_by: None,
         order_type: None,

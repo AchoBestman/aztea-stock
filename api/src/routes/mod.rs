@@ -25,6 +25,7 @@ pub mod gescom;
         auth::forgot_password,
         auth::reset_password,
         auth::verify_otp,
+        auth::get_device_key,
         crate::controllers::product_controller::create_product,
         crate::controllers::product_controller::list_products,
         crate::controllers::product_controller::get_product,

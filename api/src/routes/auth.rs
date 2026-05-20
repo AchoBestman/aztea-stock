@@ -440,6 +440,40 @@ pub async fn reset_password(
     })))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/auth/device-key",
+    responses(
+        (status = 200, description = "Clé de chiffrement des terminaux.", body = serde_json::Value),
+        (status = 401, description = "Authentification requise.")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    tag = "Auth"
+)]
+pub async fn get_device_key(
+    Extension(claims): Extension<Claims>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let db = state.db.as_ref().ok_or_else(|| {
+        ApiError::Internal("La base de données n'est pas disponible".to_string())
+    })?;
+    
+    // Authenticate/verify user exists
+    let _user = user::Entity::find_by_id(&claims.sub)
+        .one(db)
+        .await?
+        .ok_or_else(|| ApiError::Unauthorized("Compte introuvable".to_string()))?;
+
+    crate::utils::auth::require_permission(db, &claims.sub, "can_read_device_key").await?;
+
+    let key = crate::utils::crypto::get_key_string();
+    Ok(Json(serde_json::json!({
+        "device_key": key
+    })))
+}
+
 pub fn router() -> Router<std::sync::Arc<crate::AppState>> {
     Router::new()
         .route("/login", post(login))
@@ -447,4 +481,5 @@ pub fn router() -> Router<std::sync::Arc<crate::AppState>> {
         .route("/forgot-password", post(forgot_password))
         .route("/reset-password", post(reset_password))
         .route("/verify-otp", post(verify_otp))
+        .route("/device-key", get(get_device_key))
 }

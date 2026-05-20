@@ -304,6 +304,8 @@ async fn run_seeds(pool: &AnyPool) -> Result<(), anyhow::Error> {
         // Sync
         ("can_read_sync_log", "Permet de lire le journal de sync", "sync"),
         ("can_manage_sync_log", "Permet de gérer le journal de sync", "sync"),
+        // Auth / Appareils
+        ("can_read_device_key", "Permet d'obtenir la clé de chiffrement de l'appareil", "auth"),
         // Tenants
         ("can_create_tenant", "Permet de créer des tenants", "tenants"),
         ("can_read_tenant", "Permet de lire les tenants", "tenants"),
