@@ -193,6 +193,9 @@ async fn run_fresh(pool: &AnyPool, config: &config::Config) -> Result<(), anyhow
             "users",
             "roles",
             "permissions",
+            "licenses",
+            "subscriptions",
+            "categories",
             "tenants",
             "_sqlx_migrations",
         ];
@@ -246,6 +249,11 @@ async fn run_seeds(pool: &AnyPool) -> Result<(), anyhow::Error> {
         ("can_delete_role", "Permet de supprimer les rôles", "roles"),
         ("can_assign_role_to_user", "Permet d'assigner des rôles aux utilisateurs", "roles"),
         ("can_read_permission", "Permet de voir la liste des permissions système", "roles"),
+        // Categories
+        ("can_create_category", "Permet de créer des catégories de produits", "categories"),
+        ("can_read_category", "Permet de lire les catégories de produits", "categories"),
+        ("can_update_category", "Permet de modifier les catégories de produits", "categories"),
+        ("can_delete_category", "Permet de supprimer les catégories de produits", "categories"),
         // Products
         ("can_create_product", "Permet de créer des produits", "products"),
         ("can_read_product", "Permet de lire les produits", "products"),
@@ -263,6 +271,11 @@ async fn run_seeds(pool: &AnyPool) -> Result<(), anyhow::Error> {
         ("can_delete_tenant", "Permet de supprimer les tenants", "tenants"),
         ("can_set_tenant_two_factor", "Permet de configurer le Two Factor d'un tenant", "tenants"),
         ("can_update_tenant_credentials", "Permet de modifier les identifiants SMTP de connexion d'un tenant", "tenants"),
+        // Cross-Tenant (System Only)
+        ("can_access_other_tenant_for_edition", "Permet de lire les données des autres tenants", "cross-tenant"),
+        ("can_access_other_tenant_for_creation", "Permet de créer des données pour les autres tenants", "cross-tenant"),
+        ("can_access_other_tenant_for_updating", "Permet de modifier les données des autres tenants", "cross-tenant"),
+        ("can_access_other_tenant_for_deleting", "Permet de supprimer les données des autres tenants", "cross-tenant"),
         // Users
         ("can_create_user", "Permet d'ajouter un utilisateur", "users"),
         ("can_read_user", "Permet de voir les utilisateurs", "users"),

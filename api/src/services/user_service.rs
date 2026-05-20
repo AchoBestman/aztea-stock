@@ -28,6 +28,7 @@ impl UserService {
 
     pub async fn create_user(
         state: &AppState,
+        caller_user_id: &str,
         caller_tenant_id: &str,
         payload: CreateUserPayload,
     ) -> Result<UserResponse, ApiError> {
@@ -46,6 +47,8 @@ impl UserService {
 
             if caller_tenant.is_system {
                 target_tenant_id = requested_tenant.clone();
+                // Enforce cross-tenant permission check
+                crate::utils::auth::require_tenant_access(db, caller_tenant_id, &target_tenant_id, caller_user_id, "create").await?;
             } else {
                 return Err(ApiError::Forbidden("Seul le tenant système peut spécifier un tenant_id".to_string()));
             }
@@ -305,17 +308,14 @@ impl UserService {
             .await?
             .ok_or_else(|| ApiError::NotFound("Utilisateur introuvable".to_string()))?;
 
-        // 3. System Super Admin check
         let is_system_sa = crate::services::role_service::RoleService::is_system_super_admin(db, caller_user_id, caller_tenant_id).await.unwrap_or(false);
 
-        if !is_system_sa {
-            // Multi-tenant check: regular users can only modify users in their own tenant
-            if target_user.tenant_id != caller_tenant_id {
-                return Err(ApiError::Unauthorized(
-                    "Vous n'êtes pas autorisé à modifier les données d'un utilisateur d'un autre tenant.".to_string()
-                ));
-            }
+        // Multi-tenant check: even for system super admin, we must enforce cross-tenant boundaries
+        if target_user.tenant_id != caller_tenant_id {
+            crate::utils::auth::require_tenant_access(db, caller_tenant_id, &target_user.tenant_id, caller_user_id, "update").await?;
+        }
 
+        if !is_system_sa {
             // A. If changing name
             if payload.name.is_some() {
                 if !is_self {

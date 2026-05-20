@@ -28,7 +28,7 @@ impl RoleService {
 
         // 2. Determine target tenant filter based on permission guard
         let target_tenant = if let Some(ref f_t_id) = filter_tenant_id {
-            crate::utils::auth::require_tenant_access(db, caller_tenant_id, f_t_id).await?;
+            crate::utils::auth::require_tenant_access(db, caller_tenant_id, f_t_id, caller_user_id, "read").await?;
             Some(f_t_id.as_str())
         } else if caller_tenant.is_system {
             // System tenant users see all roles if no filter is specified
@@ -70,7 +70,7 @@ impl RoleService {
             .ok_or_else(|| ApiError::NotFound("Rôle introuvable".to_string()))?;
 
         // Multi-tenant guard
-        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &m.tenant_id).await?;
+        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &m.tenant_id, caller_user_id, "read").await?;
 
         // If the role is the system Super Admin, only allow system Super Admin users to access
         if m.name == "Super Admin" {
@@ -94,6 +94,7 @@ impl RoleService {
 
     pub async fn create_role(
         db: &DatabaseConnection,
+        caller_user_id: &str,
         caller_tenant_id: &str,
         payload: CreateRolePayload,
     ) -> Result<RoleResponse, ApiError> {
@@ -106,7 +107,7 @@ impl RoleService {
 
         // Determine final tenant id
         let final_tenant_id = if let Some(ref t_id) = payload.tenant_id {
-            crate::utils::auth::require_tenant_access(db, caller_tenant_id, t_id).await?;
+            crate::utils::auth::require_tenant_access(db, caller_tenant_id, t_id, caller_user_id, "create").await?;
             t_id.clone()
         } else {
             caller_tenant_id.to_string()
@@ -137,6 +138,7 @@ impl RoleService {
     pub async fn update_role(
         db: &DatabaseConnection,
         id: &str,
+        caller_user_id: &str,
         caller_tenant_id: &str,
         payload: UpdateRolePayload,
     ) -> Result<RoleResponse, ApiError> {
@@ -161,7 +163,7 @@ impl RoleService {
         }
 
         // Multi-tenant guard
-        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &role.tenant_id).await?;
+        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &role.tenant_id, caller_user_id, "update").await?;
 
         // Business validation: uniqueness of name within its tenant
         if RoleRepository::exists_by_name_exclude(db, &payload.name, &role.tenant_id, id).await? {
@@ -182,6 +184,7 @@ impl RoleService {
     pub async fn delete_role(
         db: &DatabaseConnection,
         id: &str,
+        caller_user_id: &str,
         caller_tenant_id: &str,
     ) -> Result<DeleteRoleResponse, ApiError> {
         use crate::models::user_role;
@@ -198,7 +201,7 @@ impl RoleService {
         }
 
         // Multi-tenant guard
-        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &role.tenant_id).await?;
+        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &role.tenant_id, caller_user_id, "delete").await?;
 
         let user_role_count = user_role::Entity::find()
             .filter(user_role::Column::RoleId.eq(id))
@@ -238,7 +241,7 @@ impl RoleService {
             .ok_or_else(|| ApiError::NotFound("Rôle introuvable".to_string()))?;
 
         // 2. Multi-tenant guard
-        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &role.tenant_id).await?;
+        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &role.tenant_id, caller_user_id, "update").await?;
 
         // 3. Prevent modifying permissions of the "Super Admin" role unless they are a system super admin
         if role.name == "Super Admin" {
@@ -310,7 +313,7 @@ impl RoleService {
             .ok_or_else(|| ApiError::NotFound("Rôle introuvable".to_string()))?;
 
         // 2. Multi-tenant guard
-        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &role.tenant_id).await?;
+        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &role.tenant_id, caller_user_id, "read").await?;
 
         // 3. If it's the system Super Admin role, only allow system Super Admin users to view
         if role.name == "Super Admin" {

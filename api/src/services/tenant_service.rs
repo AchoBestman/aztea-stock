@@ -88,8 +88,10 @@ impl TenantService {
 
     pub async fn update_tenant(
         db: &DatabaseConnection,
+        caller_user_id: &str,
         caller_tenant_id: &str,
         target_tenant_id: &str,
+
         payload: UpdateTenantPayload,
         caller_has_credentials_permission: bool,
     ) -> Result<TenantResponse, ApiError> {
@@ -97,7 +99,7 @@ impl TenantService {
         let caller_tenant = Self::load_tenant(db, caller_tenant_id, "Tenant de l'utilisateur introuvable").await?;
 
         // 1. Guard: Only system tenant users can update another tenant
-        crate::utils::auth::require_tenant_access(db, caller_tenant_id, target_tenant_id).await?;
+        crate::utils::auth::require_tenant_access(db, caller_tenant_id, target_tenant_id, caller_user_id, "update").await?;
 
         // Load target tenant
         let mut tenant = Self::load_tenant(db, target_tenant_id, "Tenant introuvable").await?;
@@ -189,16 +191,13 @@ impl TenantService {
 
     pub async fn delete_tenant(
         db: &DatabaseConnection,
+        caller_user_id: &str,
         caller_tenant_id: &str,
         target_tenant_id: &str,
     ) -> Result<TenantResponse, ApiError> {
-        let caller_tenant = Self::load_tenant(db, caller_tenant_id, "Tenant de l'utilisateur introuvable").await?;
+        Self::load_tenant(db, caller_tenant_id, "Tenant de l'utilisateur introuvable").await?;
 
-        if !caller_tenant.is_system {
-            return Err(ApiError::Unauthorized(
-                "Seul un utilisateur du tenant système est autorisé à supprimer un tenant.".to_string()
-            ));
-        }
+        crate::utils::auth::require_tenant_access(db, caller_tenant_id, target_tenant_id, caller_user_id, "delete").await?;
 
         let mut tenant = Self::load_tenant(db, target_tenant_id, "Tenant introuvable").await?;
 

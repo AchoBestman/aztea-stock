@@ -360,6 +360,8 @@ async fn test_update_tenant_credentials_permission() {
     db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO permissions (id, name, description, model_group) VALUES ('perm-creds', 'can_update_tenant_credentials', 'Update SMTP Creds', 'tenant')".to_string())).await.unwrap();
     
     db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO role_permissions (role_id, permission_id) VALUES ('role-sys', 'perm-update')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO permissions (id, name, description, model_group) VALUES ('perm-cross-update', 'can_access_other_tenant_for_updating', 'Cross tenant update', 'tenant')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO role_permissions (role_id, permission_id) VALUES ('role-sys', 'perm-cross-update')".to_string())).await.unwrap();
     
     db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO users (id, tenant_id, name, email, password_hash, is_active) VALUES ('user-sys', 'system-tenant', 'Sys User', 'sys@example.com', 'hash', 1)".to_string())).await.unwrap();
     db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO user_roles (user_id, role_id) VALUES ('user-sys', 'role-sys')".to_string())).await.unwrap();
@@ -427,6 +429,8 @@ async fn test_soft_delete_and_login_prevention() {
     db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO permissions (id, name, description, model_group) VALUES ('perm-read', 'can_read_tenant', 'Read Tenants', 'tenant')".to_string())).await.unwrap();
     
     db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO role_permissions (role_id, permission_id) VALUES ('role-sys', 'perm-delete')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO permissions (id, name, description, model_group) VALUES ('perm-cross-delete', 'can_access_other_tenant_for_deleting', 'Cross tenant delete', 'tenant')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO role_permissions (role_id, permission_id) VALUES ('role-sys', 'perm-cross-delete')".to_string())).await.unwrap();
     db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO role_permissions (role_id, permission_id) VALUES ('role-target', 'perm-read')".to_string())).await.unwrap();
     
     db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO users (id, tenant_id, name, email, password_hash, is_active) VALUES ('user-sys', 'system-tenant', 'Sys User', 'sys@example.com', 'hash', 1)".to_string())).await.unwrap();

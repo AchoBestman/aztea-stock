@@ -51,6 +51,11 @@ pub mod licenses;
         crate::controllers::license_controller::get_license_status,
         crate::controllers::user_controller::set_user_password,
         crate::controllers::user_controller::send_user_reset,
+        crate::controllers::category_controller::list_categories,
+        crate::controllers::category_controller::get_category,
+        crate::controllers::category_controller::create_category,
+        crate::controllers::category_controller::update_category,
+        crate::controllers::category_controller::delete_category,
     ),
     components(
         schemas(
@@ -91,6 +96,9 @@ pub mod licenses;
             crate::dtos::license_dto::LicenseResponse,
             crate::dtos::license_dto::FullLicenseResponse,
             crate::dtos::license_dto::LicenseStatusResponse,
+            crate::dtos::category_dto::CreateCategoryPayload,
+            crate::dtos::category_dto::UpdateCategoryPayload,
+            crate::dtos::category_dto::CategoryResponse,
         )
     ),
     modifiers(&SecurityAddon),
@@ -103,7 +111,8 @@ pub mod licenses;
         (name = "Admin - Tenant", description = "Tenant configuration management"),
         (name = "Admin - Users", description = "Tenant users administration management"),
         (name = "Admin - Subscriptions", description = "Subscription management (system only)"),
-        (name = "Admin - Licenses", description = "License generation & management (system only)")
+        (name = "Admin - Licenses", description = "License generation & management (system only)"),
+        (name = "Categories", description = "Product category management")
     )
 )]
 pub struct ApiDoc;
@@ -125,3 +134,4 @@ impl utoipa::Modify for SecurityAddon {
         }
     }
 }
+pub mod categories;

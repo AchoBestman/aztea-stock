@@ -191,6 +191,7 @@ pub async fn update_tenant(
 
     let response = TenantService::update_tenant(
         db,
+        &claims.sub,
         &claims.tenant_id,
         target_tenant_id,
         payload,
@@ -225,7 +226,7 @@ pub async fn delete_tenant(
     // 1. Require can_delete_tenant permission
     require_permission(db, &claims.sub, "can_delete_tenant").await?;
 
-    let response = TenantService::delete_tenant(db, &claims.tenant_id, &id).await?;
+    let response = TenantService::delete_tenant(db, &claims.sub, &claims.tenant_id, &id).await?;
     Ok(Json(response))
 }
 
@@ -259,19 +260,13 @@ pub async fn set_tenant_two_factor(
     // 1. Check permission
     require_permission(db, &claims.sub, "can_set_tenant_two_factor").await?;
 
-    // 2. Load caller's tenant to check if they belong to the system tenant (is_system = true)
-    let caller_tenant = TenantService::load_tenant(db, &claims.tenant_id, "Tenant de l'utilisateur introuvable").await?;
+
 
     // 3. Enforce the rule:
     // Determine the target tenant_id: default to caller's tenant_id if not specified in the payload.
     let target_tenant_id = payload.tenant_id.as_deref().unwrap_or(&claims.tenant_id);
 
-    // User must belong to the target tenant, UNLESS they are an authorized user from the system tenant (is_system = true).
-    if target_tenant_id != claims.tenant_id && !caller_tenant.is_system {
-        return Err(ApiError::Unauthorized(
-            "Vous n'êtes pas autorisé à modifier la double authentification pour un autre tenant.".to_string()
-        ));
-    }
+    crate::utils::auth::require_tenant_access(db, &claims.tenant_id, target_tenant_id, &claims.sub, "update").await?;
 
     let response = TenantService::set_two_factor(db, target_tenant_id, payload.two_factor_enabled).await?;
     Ok(Json(response))

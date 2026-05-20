@@ -5,3 +5,4 @@ pub mod user_service;
 pub mod permission_service;
 pub mod subscription_service;
 pub mod license_service;
+pub mod category_service;

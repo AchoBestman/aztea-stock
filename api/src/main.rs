@@ -66,6 +66,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
 
     // ── Business routes requiring JWT + active license ────────────────────────
     let licensed = Router::new()
+        .nest("/api/v1/categories", routes::categories::router())
         .nest("/api/v1/products", routes::products::router())
         .nest("/api/v1/sales", routes::sales::router())
         .nest("/api/v1/stock", routes::stock::router())

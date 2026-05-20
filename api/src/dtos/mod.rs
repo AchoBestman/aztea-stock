@@ -5,3 +5,4 @@ pub mod tenant_dto;
 pub mod user_dto;
 pub mod subscription_dto;
 pub mod license_dto;
+pub mod category_dto;

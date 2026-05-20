@@ -4,3 +4,4 @@ pub mod user_controller;
 pub mod permission_controller;
 pub mod subscription_controller;
 pub mod license_controller;
+pub mod category_controller;

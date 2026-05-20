@@ -6,3 +6,4 @@ pub mod user_role;
 pub mod role_permission;
 pub mod subscription;
 pub mod license;
+pub mod category;

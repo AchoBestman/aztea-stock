@@ -82,7 +82,7 @@ pub async fn create_user(
         require_permission(db, &claims.sub, "can_create_user").await?;
     }
 
-    let user = UserService::create_user(&state, &claims.tenant_id, payload).await?;
+    let user = UserService::create_user(&state, &claims.sub, &claims.tenant_id, payload).await?;
     Ok(Json(user))
 }
 

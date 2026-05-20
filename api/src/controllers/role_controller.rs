@@ -114,7 +114,7 @@ pub async fn create_role(
 
     require_permission(db, &claims.sub, "can_create_role").await?;
 
-    let role = RoleService::create_role(db, &claims.tenant_id, payload).await?;
+    let role = RoleService::create_role(db, &claims.sub, &claims.tenant_id, payload).await?;
     Ok(Json(role))
 }
 
@@ -152,7 +152,7 @@ pub async fn update_role(
 
     require_permission(db, &claims.sub, "can_update_role").await?;
 
-    let role = RoleService::update_role(db, &id, &claims.tenant_id, payload).await?;
+    let role = RoleService::update_role(db, &id, &claims.sub, &claims.tenant_id, payload).await?;
     Ok(Json(role))
 }
 
@@ -183,7 +183,7 @@ pub async fn delete_role(
 
     require_permission(db, &claims.sub, "can_delete_role").await?;
 
-    let response = RoleService::delete_role(db, &id, &claims.tenant_id).await?;
+    let response = RoleService::delete_role(db, &id, &claims.sub, &claims.tenant_id).await?;
     Ok(Json(response))
 }
 

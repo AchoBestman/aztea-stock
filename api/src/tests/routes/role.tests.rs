@@ -120,7 +120,7 @@ async fn test_list_roles_with_tenant_filter_system_tenant() {
     db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO tenants (id, name, business_type, email, is_system) VALUES ('system-tenant', 'System', 'pharmacy', 'system@system.com', 1)".to_string())).await.unwrap();
     db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO tenants (id, name, business_type, email, is_system) VALUES ('tenant-2', 'Other Tenant', 'pharmacy', 'other@tenant.com', 0)".to_string())).await.unwrap();
     
-    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO roles (id, tenant_id, name, description) VALUES ('role-sys', 'system-tenant', 'sysadmin', 'System Admin')".to_string())).await.unwrap();
+    db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO roles (id, tenant_id, name, description) VALUES ('role-sys', 'system-tenant', 'Super Admin', 'System Admin')".to_string())).await.unwrap();
     db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO roles (id, tenant_id, name, description) VALUES ('role-other', 'tenant-2', 'clerk', 'Clerk')".to_string())).await.unwrap();
     
     db.execute(Statement::from_string(DatabaseBackend::Sqlite, "INSERT INTO permissions (id, name, description, model_group) VALUES ('perm-read', 'can_read_role', 'Read roles', 'roles')".to_string())).await.unwrap();

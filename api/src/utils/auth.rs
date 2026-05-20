@@ -74,6 +74,8 @@ pub async fn require_tenant_access(
     db: &sea_orm::DatabaseConnection,
     caller_tenant_id: &str,
     target_tenant_id: &str,
+    user_id: &str,
+    action_type: &str, // "read" | "create" | "update" | "delete"
 ) -> Result<(), ApiError> {
     if target_tenant_id != caller_tenant_id {
         let caller_tenant = crate::repositories::tenant_repository::TenantRepository::find_by_id(db, caller_tenant_id)
@@ -86,6 +88,17 @@ pub async fn require_tenant_access(
                 "Vous n'êtes pas autorisé à modifier ou accéder aux données d'un autre tenant.".to_string()
             ));
         }
+
+        // It is a system tenant, check specific cross-tenant permission
+        let required_permission = match action_type {
+            "read" => "can_access_other_tenant_for_edition", // "edition" used for read/list as per requirements
+            "create" => "can_access_other_tenant_for_creation",
+            "update" => "can_access_other_tenant_for_updating",
+            "delete" => "can_access_other_tenant_for_deleting",
+            _ => return Err(ApiError::Internal("Action type invalide pour cross-tenant".to_string())),
+        };
+
+        crate::utils::auth::require_permission(db, user_id, required_permission).await?;
     }
     Ok(())
 }
