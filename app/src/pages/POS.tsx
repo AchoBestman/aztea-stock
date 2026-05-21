@@ -173,11 +173,12 @@ export default function POS() {
       if (isVirtualPdf) {
         // Use html2pdf.js via CDN for direct download
         notify('Génération du PDF en cours...', 'success');
-        const loadHtml2Pdf = () => new Promise<any>((resolve) => {
+        const loadHtml2Pdf = () => new Promise<any>((resolve, reject) => {
           if ((window as any).html2pdf) return resolve((window as any).html2pdf);
           const script = document.createElement('script');
           script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
           script.onload = () => resolve((window as any).html2pdf);
+          script.onerror = () => reject(new Error("Impossible de charger le générateur PDF. Vérifiez votre connexion Internet."));
           document.head.appendChild(script);
         });
 
@@ -392,18 +393,23 @@ export default function POS() {
 
       setReceiptData(createdSale);
 
-      if (withPrint) {
-        setShowReceiptModal(true);
-        await printReceipt(createdSale);
-      } else {
-        notify('Vente validée avec succès.', 'success');
-      }
-
+      // Reset cart state IMMEDIATELY so the user is not blocked
       setCart([]);
       setDiscount(0);
       setAmountReceived('');
       setClientInfo({ full_name: '', phone: '', email: '' });
       loadData();
+
+      if (withPrint) {
+        setShowReceiptModal(true);
+        // Do not await the print so the UI remains interactive
+        printReceipt(createdSale).catch(err => {
+          console.error(err);
+          notify(err?.message || "Erreur lors de l'impression", 'error');
+        });
+      } else {
+        notify('Vente validée avec succès.', 'success');
+      }
     } catch (e: any) {
       console.error(e);
       notify(e.message || 'Erreur lors de la validation de la vente.', 'error');

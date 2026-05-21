@@ -242,6 +242,24 @@ export interface LicenseStatusResponse {
 
 let cachedFingerprint: string | null = null;
 
+async function ensureTauriDeviceKey(invoke: any): Promise<void> {
+  const token = localStorage.getItem('aztea_access_token');
+  if (!token) return;
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/auth/device-key`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.device_key) {
+        await invoke('set_device_key', { key: data.device_key });
+      }
+    }
+  } catch (e) {
+    console.warn("Failed to fetch device key from API:", e);
+  }
+}
+
 async function getDeviceFingerprint(): Promise<string> {
   if (cachedFingerprint) return cachedFingerprint;
 
@@ -249,9 +267,19 @@ async function getDeviceFingerprint(): Promise<string> {
     const isTauri = typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__ !== undefined;
     if (isTauri) {
       const { invoke } = await import('@tauri-apps/api/core');
-      const fp = await invoke<string>('get_device_fingerprint');
-      cachedFingerprint = fp;
-      return fp;
+      try {
+        const fp = await invoke<string>('get_device_fingerprint');
+        cachedFingerprint = fp;
+        return fp;
+      } catch (e: any) {
+        if (e && typeof e === 'string' && e.includes("connecter d'abord")) {
+          await ensureTauriDeviceKey(invoke);
+          const fpRetry = await invoke<string>('get_device_fingerprint');
+          cachedFingerprint = fpRetry;
+          return fpRetry;
+        }
+        throw e;
+      }
     }
   } catch (e) {
     console.error("Tauri get_device_fingerprint failed:", e);
@@ -327,9 +355,20 @@ export const api = {
         const isTauri = typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__ !== undefined;
         if (isTauri) {
           const { invoke } = await import('@tauri-apps/api/core');
-          const info = await invoke<{ name: string; fingerprint: string }>('get_device_info');
-          device_fingerprint = info.fingerprint;
-          device_name = info.name;
+          try {
+            const info = await invoke<{ name: string; fingerprint: string }>('get_device_info');
+            device_fingerprint = info.fingerprint;
+            device_name = info.name;
+          } catch (e: any) {
+             if (e && typeof e === 'string' && e.includes("connecter d'abord")) {
+                await ensureTauriDeviceKey(invoke);
+                const info = await invoke<{ name: string; fingerprint: string }>('get_device_info');
+                device_fingerprint = info.fingerprint;
+                device_name = info.name;
+             } else {
+               throw e;
+             }
+          }
         } else {
           device_fingerprint = 'AAAAAAAAAAAAAAAAAAAAAMKuRLPzNfGMEejIg4eDQgmz1w80ljy5t1GqcdX03uvIZXLMrxZMlH3hmJq5l0wRkQ==';
           device_name = 'Navigateur Web (Simulé)';

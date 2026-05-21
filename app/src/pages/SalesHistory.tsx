@@ -101,11 +101,12 @@ export default function SalesHistory() {
       const htmlContent = buildPrintableHtml(data);
       
       toast.success('Génération du rapport PDF en cours...');
-      const loadHtml2Pdf = () => new Promise<any>((resolve) => {
+      const loadHtml2Pdf = () => new Promise<any>((resolve, reject) => {
         if ((window as any).html2pdf) return resolve((window as any).html2pdf);
         const script = document.createElement('script');
         script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
         script.onload = () => resolve((window as any).html2pdf);
+        script.onerror = () => reject(new Error("Impossible de charger le générateur PDF. Vérifiez votre connexion Internet."));
         document.head.appendChild(script);
       });
 
@@ -234,11 +235,12 @@ export default function SalesHistory() {
 
       if (isVirtualPdf) {
         toast.success('Génération du PDF en cours...');
-        const loadHtml2Pdf = () => new Promise<any>((resolve) => {
+        const loadHtml2Pdf = () => new Promise<any>((resolve, reject) => {
           if ((window as any).html2pdf) return resolve((window as any).html2pdf);
           const script = document.createElement('script');
           script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
           script.onload = () => resolve((window as any).html2pdf);
+          script.onerror = () => reject(new Error("Impossible de charger le générateur PDF. Vérifiez votre connexion Internet."));
           document.head.appendChild(script);
         });
 
