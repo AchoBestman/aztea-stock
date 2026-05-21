@@ -528,15 +528,32 @@ export const api = {
         body: JSON.stringify(payload),
       }),
 
-    list: (search = '', status = '', page = 1, perPage = 100) => {
+    list: (search = '', status = '', page = 1, perPage = 100, startDate = '', endDate = '', tenantId = '') => {
       const params = new URLSearchParams({
         page: page.toString(),
         per_page: perPage.toString(),
       });
       if (search) params.append('customer_name', search);
       if (status) params.append('status', status);
+      if (startDate) params.append('start_date', startDate);
+      if (endDate) params.append('end_date', endDate);
+      if (tenantId) params.append('tenant_id', tenantId);
       return request<PaginatedSales>(`/sales?${params.toString()}`);
     },
+
+    export: (format: 'pdf' | 'excel' | 'csv', startDate?: string, endDate?: string, tenantId?: string) => {
+      const params = new URLSearchParams({ format });
+      if (startDate) params.append('start_date', startDate);
+      if (endDate) params.append('end_date', endDate);
+      if (tenantId) params.append('tenant_id', tenantId);
+      return request<Sale[]>(`/sales/export?${params.toString()}`);
+    },
+
+    getReceipt: (id: string) =>
+      request<any>(`/sales/${id}/receipt`),
+
+    get: (id: string) =>
+      request<Sale>(`/sales/${id}`),
   },
 
   // Sync

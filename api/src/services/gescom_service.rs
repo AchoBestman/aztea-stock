@@ -622,6 +622,83 @@ impl GescomService {
         })
     }
 
+    /// Export all sales for a tenant, with optional date range filtering.
+    /// Used for PDF/Excel export endpoints.
+    pub async fn export_sales(
+        db: &DatabaseConnection,
+        caller_user_id: &str,
+        caller_tenant_id: &str,
+        target_tenant_id: Option<String>,
+        start_date: Option<String>,
+        end_date: Option<String>,
+    ) -> Result<Vec<SaleResponse>, ApiError> {
+        let final_tenant_id = if let Some(ref t_id) = target_tenant_id {
+            crate::utils::auth::require_tenant_access(db, caller_tenant_id, t_id, caller_user_id, "read").await?;
+            t_id.clone()
+        } else {
+            caller_tenant_id.to_string()
+        };
+
+        // Use a very large per_page to get all records for export
+        let params = crate::utils::pagination::PaginationParams {
+            page: Some(1),
+            per_page: Some(100_000),
+            search: None,
+            start_date,
+            end_date,
+            tenant_id: Some(final_tenant_id.clone()),
+            order_by: None,
+            order_type: None,
+        };
+
+        let paginated = GescomRepository::find_sales_paginated(
+            db,
+            &final_tenant_id,
+            None,
+            None,
+            params,
+        ).await?;
+
+        let mut data = Vec::with_capacity(paginated.data.len());
+        for sale in paginated.data {
+            let items = GescomRepository::find_sale_items(db, &sale.id).await?;
+            let item_responses = items.into_iter().map(|i| SaleItemResponse {
+                id: i.id,
+                product_id: i.product_id,
+                product_name: i.product_name,
+                product_barcode: i.product_barcode,
+                quantity: i.quantity,
+                unit_price: i.unit_price,
+                tax_rate: i.tax_rate,
+                discount: i.discount,
+                line_total: i.line_total,
+            }).collect();
+
+            data.push(SaleResponse {
+                id: sale.id,
+                tenant_id: sale.tenant_id,
+                user_id: sale.user_id,
+                receipt_number: sale.receipt_number,
+                customer_name: sale.customer_name,
+                customer_phone: sale.customer_phone,
+                subtotal: sale.subtotal,
+                tax_total: sale.tax_total,
+                discount_total: sale.discount_total,
+                total: sale.total,
+                amount_paid: sale.amount_paid,
+                change_given: sale.change_given,
+                payment_method: sale.payment_method,
+                status: sale.status,
+                notes: sale.notes,
+                sold_at: sale.sold_at,
+                created_at: sale.created_at,
+                items: item_responses,
+            });
+        }
+
+        Ok(data)
+    }
+
     // --- Purchases ---
 
     pub async fn create_purchase(

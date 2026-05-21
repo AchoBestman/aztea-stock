@@ -80,7 +80,7 @@ export default function Header() {
       <div className="flex items-center gap-6">
         {/* Date & Time Widget */}
         <div className="flex items-center gap-3 text-sm text-muted-foreground border-r border-border pr-6">
-          <Clock className="w-4 h-4 text-primary" />
+          <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
           <span className="font-semibold tabular-nums text-foreground">{formatTime(time)}</span>
           <span className="text-xs capitalize font-medium hidden md:inline">{formatDate(time)}</span>
         </div>

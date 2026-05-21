@@ -57,7 +57,12 @@ impl GescomRepository {
             .filter(sales::Column::TenantId.eq(tenant_id));
 
         if let Some(name) = customer_name {
-            query = query.filter(sales::Column::CustomerName.contains(&name));
+            query = query.filter(
+                sea_orm::Condition::any()
+                    .add(sales::Column::CustomerName.contains(&name))
+                    .add(sales::Column::CustomerPhone.contains(&name))
+                    .add(sales::Column::ReceiptNumber.contains(&name))
+            );
         }
 
         if let Some(st) = status {

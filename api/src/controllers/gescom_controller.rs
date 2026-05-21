@@ -61,6 +61,14 @@ pub struct ListSyncLogsQuery {
     pub per_page: Option<u64>,
 }
 
+#[derive(Deserialize, IntoParams)]
+pub struct ExportSalesQuery {
+    pub tenant_id: Option<String>,
+    pub start_date: Option<String>,
+    pub end_date: Option<String>,
+    pub format: String,
+}
+
 // --- Sales Endpoints ---
 
 #[utoipa::path(
@@ -270,10 +278,52 @@ pub async fn get_sale_receipt(
         ApiError::Internal("La base de données n'est pas disponible".to_string())
     })?;
 
-    require_permission(db, &claims.sub, "can_read_sale").await?;
+    require_permission(db, &claims.sub, "can_print_sale_receipt").await?;
 
     let receipt = GescomService::get_sale_receipt(db, &id, &claims.sub, &claims.tenant_id).await?;
     Ok(Json(receipt))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/sales/export",
+    params(ExportSalesQuery),
+    responses(
+        (status = 200, description = "Données pour l'export des ventes.", body = Vec<SaleResponse>),
+        (status = 401, description = "Authentification requise.")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    tag = "Ventes"
+)]
+pub async fn export_sales(
+    Query(query): Query<ExportSalesQuery>,
+    Extension(claims): Extension<Claims>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<SaleResponse>>, ApiError> {
+    let db = state.db.as_ref().ok_or_else(|| {
+        ApiError::Internal("La base de données n'est pas disponible".to_string())
+    })?;
+
+    if query.format == "pdf" {
+        require_permission(db, &claims.sub, "can_export_sale_pdf").await?;
+    } else if query.format == "excel" || query.format == "csv" {
+        require_permission(db, &claims.sub, "can_export_sale_excel").await?;
+    } else {
+        return Err(ApiError::BadRequest("Format invalide".to_string()));
+    }
+
+    let sales = GescomService::export_sales(
+        db,
+        &claims.sub,
+        &claims.tenant_id,
+        query.tenant_id,
+        query.start_date,
+        query.end_date,
+    ).await?;
+
+    Ok(Json(sales))
 }
 
 // --- Purchases Endpoints ---

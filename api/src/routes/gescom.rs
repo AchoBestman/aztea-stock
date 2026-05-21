@@ -3,7 +3,7 @@ use axum::{
     Router,
 };
 use crate::controllers::gescom_controller::{
-    create_sale, list_sales, get_sale, void_sale, refund_sale, get_sale_receipt,
+    create_sale, list_sales, get_sale, void_sale, refund_sale, get_sale_receipt, export_sales,
     create_purchase, list_purchases, get_purchase, cancel_purchase,
     list_alerts, mark_alert_read, mark_all_alerts_read,
     create_sync_log, list_sync_logs,
@@ -16,6 +16,7 @@ pub fn router() -> Router<Arc<AppState>> {
         // Sales
         .route("/sales", post(create_sale))
         .route("/sales", get(list_sales))
+        .route("/sales/export", get(export_sales))
         .route("/sales/:id", get(get_sale))
         .route("/sales/:id/void", post(void_sale))
         .route("/sales/:id/refund", post(refund_sale))

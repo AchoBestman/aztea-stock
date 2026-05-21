@@ -12,6 +12,7 @@ import Login from './pages/Login';
 import Users from './pages/Users';
 import Roles from './pages/Roles';
 import Sync from './pages/Sync';
+import SalesHistory from './pages/SalesHistory';
 
 function App() {
   return (
@@ -47,6 +48,7 @@ function App() {
           <Route path="users" element={<Users />} />
           <Route path="roles" element={<Roles />} />
           <Route path="sync" element={<Sync />} />
+          <Route path="sales-history" element={<SalesHistory />} />
         </Route>
       </Routes>
       </Router>

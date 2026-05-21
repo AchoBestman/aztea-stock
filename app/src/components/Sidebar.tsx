@@ -11,7 +11,8 @@ import {
   WifiOff,
   User,
   ShieldCheck,
-  Tag
+  Tag,
+  Receipt
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useSyncStore } from '../store/syncStore';
@@ -27,6 +28,7 @@ export default function Sidebar() {
     { to: '/stock', icon: Package, label: 'Gestion Stock' },
     { to: '/products', icon: Package, label: 'Produits' },
     { to: '/categories', icon: Tag, label: 'Catégories' },
+    { to: '/sales-history', icon: Receipt, label: 'Historique Ventes' },
     { to: '/reports', icon: BarChart3, label: 'Statistiques' },
     { to: '/settings', icon: Settings, label: 'Paramètres' },
   ];

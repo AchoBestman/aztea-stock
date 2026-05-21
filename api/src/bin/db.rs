@@ -293,6 +293,9 @@ async fn run_seeds(pool: &AnyPool) -> Result<(), anyhow::Error> {
         ("can_read_sale", "Permet de lire les ventes", "sales"),
         ("can_update_sale", "Permet de modifier les ventes", "sales"),
         ("can_delete_sale", "Permet de supprimer les ventes", "sales"),
+        ("can_export_sale_pdf", "Permet d'exporter l'historique des ventes en PDF", "sales"),
+        ("can_export_sale_excel", "Permet d'exporter l'historique des ventes en Excel/CSV", "sales"),
+        ("can_print_sale_receipt", "Permet d'imprimer un reçu de vente", "sales"),
         // Purchases
         ("can_create_purchase", "Permet de créer des achats", "purchases"),
         ("can_read_purchase", "Permet de lire les achats", "purchases"),

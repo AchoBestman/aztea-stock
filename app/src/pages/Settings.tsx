@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { api, getApiBaseUrl } from '../services/api';
+import toast from 'react-hot-toast';
 
 export default function Settings() {
   const { licenseKey, licenseStatus, activateLicense } = useAuthStore();
@@ -134,11 +135,11 @@ export default function Settings() {
     setIsActivating(false);
     
     if (success) {
-      alert("Licence activée avec succès !");
+      toast.success("Licence activée avec succès !");
       setNewKey('');
       loadData();
     } else {
-      alert("Clé de licence invalide. Veuillez réessayer.");
+      toast.error("Clé de licence invalide. Veuillez réessayer.");
     }
   };
 
@@ -154,7 +155,7 @@ export default function Settings() {
         const testTenant = await api.tenants.get();
         if (testTenant && testTenant.is_system) {
           // Allowed: System Tenant can change endpoints
-          alert("Adresse API vérifiée et enregistrée avec succès !");
+          toast.success("Adresse API vérifiée et enregistrée avec succès !");
         } else {
           // Revert changes
           localStorage.setItem('aztea_api_base_url', currentBaseUrl);
@@ -169,7 +170,7 @@ export default function Settings() {
         // Revert on error
         localStorage.setItem('aztea_api_base_url', currentBaseUrl);
         setApiUrl(currentBaseUrl);
-        alert("Erreur de connexion : Impossible de valider l'adresse API sur ce serveur.");
+        toast.error("Erreur de connexion : Impossible de valider l'adresse API sur ce serveur.");
         return;
       }
     }
@@ -179,16 +180,16 @@ export default function Settings() {
     localStorage.setItem('aztea_default_scanner', selectedScanner);
     localStorage.setItem('aztea_printer_width', printerWidth);
     
-    alert("Paramètres enregistrés localement avec succès !");
+    toast.success("Paramètres enregistrés localement avec succès !");
   };
 
   const submitUrlChangeRequest = () => {
     setShowRequestModal(false);
-    alert(`Demande de modification de l'adresse API vers "${requestUrl}" soumise avec succès au système. En attente de validation.`);
+    toast.success(`Demande de modification de l'adresse API vers "${requestUrl}" soumise avec succès au système. En attente de validation.`);
   };
 
   return (
-    <div className="max-w-3xl mx-auto space-y-8 animate-slide-up select-none">
+    <div className="w-full space-y-8 animate-slide-up select-none">
       
       {/* Page Header */}
       <div>
@@ -199,7 +200,7 @@ export default function Settings() {
       {/* License Panel */}
       <div className="bg-card border border-border rounded-3xl p-6 shadow-sm space-y-4">
         <div className="flex items-center gap-3">
-          <Key className="w-5 h-5 text-primary" />
+          <Key className="w-5 h-5 text-primary dark:text-amber-400" />
           <h3 className="font-bold text-sm text-foreground">Gestion de la Licence</h3>
         </div>
 
@@ -212,7 +213,7 @@ export default function Settings() {
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Statut de la Licence :</span>
-              <span className={`uppercase font-bold ${licenseDetails?.is_valid ? 'text-emerald-500' : 'text-primary'}`}>
+              <span className={`uppercase font-bold ${licenseDetails?.is_valid ? 'text-emerald-500' : 'text-primary dark:text-amber-400'}`}>
                 {licenseDetails?.status || licenseStatus}
               </span>
             </div>
@@ -241,8 +242,8 @@ export default function Settings() {
               />
               <button
                 type="submit"
-                disabled={isActivating}
-                className="px-4 py-2 bg-primary text-primary-foreground text-xs font-bold rounded-xl cursor-pointer hover:bg-opacity-95 disabled:bg-muted"
+                disabled={isActivating || !newKey.trim()}
+                className="px-4 py-2 bg-primary dark:bg-amber-500 text-primary-foreground dark:text-amber-950 text-xs font-bold rounded-xl cursor-pointer hover:bg-opacity-95 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isActivating ? 'Activation...' : 'Activer'}
               </button>
@@ -254,7 +255,7 @@ export default function Settings() {
       {/* Hardware Panel - Dynamic Devices detection */}
       <div className="bg-card border border-border rounded-3xl p-6 shadow-sm space-y-6">
         <div className="flex items-center gap-3">
-          <Printer className="w-5 h-5 text-primary" />
+          <Printer className="w-5 h-5 text-primary dark:text-amber-400" />
           <h3 className="font-bold text-sm text-foreground">Périphériques Matériels Connectés</h3>
         </div>
 
@@ -326,7 +327,7 @@ export default function Settings() {
               </div>
 
               <div className="p-3 bg-accent/30 rounded-xl border border-border/50 text-[10px] font-semibold text-muted-foreground flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-primary shrink-0" />
+                <AlertCircle className="w-4 h-4 text-primary dark:text-amber-400 shrink-0" />
                 <span>Le scanner sélectionné captera automatiquement les entrées en caisse pour l'ajout au panier.</span>
               </div>
             </div>
@@ -337,7 +338,7 @@ export default function Settings() {
       {/* Sync endpoints */}
       <div className="bg-card border border-border rounded-3xl p-6 shadow-sm space-y-4">
         <div className="flex items-center gap-3">
-          <Database className="w-5 h-5 text-primary" />
+          <Database className="w-5 h-5 text-primary dark:text-amber-400" />
           <h3 className="font-bold text-sm text-foreground">Serveur de Synchronisation</h3>
         </div>
 
@@ -356,7 +357,7 @@ export default function Settings() {
       <div className="flex justify-end pt-4">
         <button
           onClick={handleSaveSettings}
-          className="flex items-center gap-1.5 px-6 py-3 rounded-2xl bg-primary text-primary-foreground font-bold text-xs shadow-md hover:bg-opacity-95 transition-all cursor-pointer"
+          className="flex items-center gap-1.5 px-6 py-3 rounded-2xl bg-primary dark:bg-amber-500 text-primary-foreground dark:text-amber-950 font-bold text-xs shadow-md hover:bg-opacity-95 transition-all cursor-pointer"
         >
           <Save className="w-4 h-4" />
           <span>Enregistrer les paramètres</span>
@@ -387,7 +388,7 @@ export default function Settings() {
               </button>
               <button
                 onClick={submitUrlChangeRequest}
-                className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow-sm hover:bg-opacity-95 cursor-pointer"
+                className="flex-1 py-2.5 rounded-xl bg-primary dark:bg-amber-500 text-primary-foreground dark:text-amber-950 text-xs font-bold shadow-sm hover:bg-opacity-95 cursor-pointer"
               >
                 Soumettre Demande
               </button>
