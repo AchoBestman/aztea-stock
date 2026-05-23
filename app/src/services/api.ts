@@ -554,6 +554,8 @@ export const api = {
       customer_phone?: string;
       payment_method: string;
       notes?: string;
+      amount_paid?: number;
+      change_given?: number;
       items: {
         product_id: string;
         quantity: number;

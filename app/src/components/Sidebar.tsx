@@ -103,7 +103,7 @@ export default function Sidebar() {
                 className={({ isActive }) => clsx(
                   "flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 group card-hover",
                   isActive 
-                    ? "bg-primary text-primary-foreground shadow-md glow-primary" 
+                    ? "bg-primary dark:bg-blue-600 text-primary-foreground shadow-md glow-primary" 
                     : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                 )}
               >
@@ -122,7 +122,7 @@ export default function Sidebar() {
               className={({ isActive }) => clsx(
                 "flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 group card-hover",
                 isActive 
-                  ? "bg-primary text-primary-foreground shadow-md glow-primary" 
+                  ? "bg-primary dark:bg-blue-600 text-primary-foreground shadow-md glow-primary" 
                   : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
               )}
             >
@@ -134,7 +134,7 @@ export default function Sidebar() {
               className={({ isActive }) => clsx(
                 "flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 group card-hover",
                 isActive 
-                  ? "bg-primary text-primary-foreground shadow-md glow-primary" 
+                  ? "bg-primary dark:bg-blue-600 text-primary-foreground shadow-md glow-primary" 
                   : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
               )}
             >
@@ -157,7 +157,7 @@ export default function Sidebar() {
               : "bg-card text-foreground hover:bg-accent"
           )}
         >
-          <RefreshCw className={clsx("w-3.5 h-3.5 text-primary", isSyncing && "animate-spin")} />
+          <RefreshCw className={clsx("w-3.5 h-3.5 text-primary dark:text-blue-400", isSyncing && "animate-spin")} />
           <span>{isSyncing ? 'Synchronisation...' : 'Synchroniser'}</span>
 
         </Link>
@@ -166,12 +166,12 @@ export default function Sidebar() {
         {user && (
           <div className="flex items-center gap-3 p-2.5 rounded-xl bg-card border border-border">
             <div className="w-9 h-9 rounded-lg bg-accent flex items-center justify-center text-primary border border-border">
-              <User className="w-4 h-4" />
+              <User className="w-4 h-4 dark:text-blue-400" />
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs font-semibold text-foreground truncate">{user.name}</p>
               <p className="text-[10px] text-muted-foreground font-medium capitalize truncate">
-                {user.role === 'cashier' ? 'Caissier' : 'Gérant'}
+                {user.role}
               </p>
             </div>
             <button 

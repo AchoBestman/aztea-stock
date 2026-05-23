@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Search, 
   ShoppingCart, 
@@ -11,11 +11,18 @@ import {
   Tag,
   ChevronDown,
   ChevronRight,
-  UserPlus
+  UserPlus,
+  AlertTriangle,
+  X,
+  Camera
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { api, Sale, Category } from '../services/api';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { CameraBarcodeScanner } from '../components/CameraBarcodeScanner';
+import { getTicketPrinterConfig, isTauriApp } from '../utils/hardwareConfig';
+import { computeReceiptTotals, getItemBarcode, renderBarcodeSvg } from '../utils/receipt';
+import { getTicketLayout, printTicketFromSale } from '../utils/printService';
 import React from 'react';
 
 interface POSProduct {
@@ -35,6 +42,8 @@ interface CartItem {
   quantity: number;
 }
 
+type BarcodeErrorReason = 'not_found' | 'out_of_stock' | 'insufficient_stock';
+
 export default function POS() {
   const { user } = useAuthStore();
   
@@ -43,6 +52,23 @@ export default function POS() {
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [barcodeInput, setBarcodeInput] = useState('');
+  const [isManualBarcode, setIsManualBarcode] = useState(false);
+  const [barcodeErrorModal, setBarcodeErrorModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    code: string;
+    reason: BarcodeErrorReason | null;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    code: '',
+    reason: null,
+  });
+  const dismissedBarcodeErrorRef = useRef<{ code: string; reason: BarcodeErrorReason } | null>(null);
+  const barcodeTimestampsRef = useRef<number[]>([]);
+  const SCAN_CHAR_INTERVAL_MS = 50;
   const [cart, setCart] = useState<CartItem[]>([]);
   const [discount, setDiscount] = useState(0); // flat discount in F
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'momo' | 'card'>('cash');
@@ -59,6 +85,8 @@ export default function POS() {
   const [expandedProducts, setExpandedProducts] = useState<Record<string, boolean>>({});
   const [isCartDetailsExpanded, setIsCartDetailsExpanded] = useState(true);
   const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; productId: string; productName: string }>({ isOpen: false, productId: '', productName: '' });
+  const [showCameraScanner, setShowCameraScanner] = useState(false);
+  const productTableRef = useRef<HTMLDivElement>(null);
 
   const toggleExpand = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -77,152 +105,29 @@ export default function POS() {
     setNotification({ message, type });
   }, []);
 
-  // Generate receipt plain text for thermal printer
-  const generateReceiptText = (sale: Sale) => {
-    const w = parseInt(localStorage.getItem('aztea_printer_width') || '80') === 58 ? 32 : 42;
-    const center = (s: string) => { const pad = Math.max(0, Math.floor((w - s.length) / 2)); return ' '.repeat(pad) + s; };
-    const line = (l: string, r: string) => { const space = Math.max(1, w - l.length - r.length); return l + ' '.repeat(space) + r; };
-    const sep = '-'.repeat(w);
-    const lines: string[] = [
-      center('AZTEA PHARMACY & POS'),
-      center('Brazzaville, Congo'),
-      center('Tel: +242 05 656 0299'),
-      sep,
-      `Ticket: ${sale.receipt_number}`,
-      `Date: ${new Date(sale.sold_at).toLocaleString('fr-FR')}`,
-      `Caissier: ${user?.name || 'Inconnu'}`,
-    ];
-    
-    if (sale.customer_name) {
-      lines.push(`Client: ${sale.customer_name}`);
-    }
-    if (sale.notes) {
-      try {
-        const parsed = JSON.parse(sale.notes);
-        if (parsed.phone) lines.push(`Tel: ${parsed.phone}`);
-      } catch (e) {}
-    }
-    
-    lines.push(sep);
-    sale.items.forEach(item => {
-      lines.push(line(item.product_name?.substring(0, w - 16) || '', `${item.quantity}x${item.unit_price}F`));
-    });
-    
-    lines.push(sep, line('Sous-total:', `${sale.subtotal} F`));
-    if (sale.discount_total > 0) lines.push(line('Remise:', `-${sale.discount_total} F`));
-    lines.push(sep, line('NET A PAYER:', `${sale.total} F`), sep);
-    const pm = sale.payment_method === 'cash' ? 'Especes' : sale.payment_method === 'mobile_money' ? 'Mobile Money' : 'Carte';
-    lines.push(`Mode: ${pm}`, sep, center('*** MERCI DE VOTRE VISITE ***'), '', '');
-    return lines.join('\n');
-  };
-
-  // Print receipt: Tauri = silent lp, Web = iframe print
   const printReceipt = async (sale: Sale) => {
-    const printerName = localStorage.getItem('aztea_default_printer') || '';
-    const isTauri = typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__ !== undefined;
-    const isVirtualPdf = printerName.toLowerCase().includes('pdf');
-    
-    if (isTauri && !isVirtualPdf) {
-      if (!printerName) {
-        notify('Aucune imprimante configurée. Veuillez la définir dans les Paramètres.', 'error');
-        return;
-      }
-      try {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const content = generateReceiptText(sale);
-        await invoke('print_receipt', { printerName, content });
+    try {
+      const cfg = getTicketPrinterConfig();
+      notify('Génération du ticket en cours...', 'success');
+      const savedPath = await printTicketFromSale(sale, `ticket_${sale.receipt_number}.pdf`, {
+        cashierName: user?.name,
+      });
+      if (cfg.isPdf) {
+        notify(
+          typeof savedPath === 'string' && savedPath
+            ? `PDF enregistré : ${savedPath}`
+            : 'Ticket PDF enregistré dans Téléchargements.',
+          'success'
+        );
+      } else if (isTauriApp()) {
         notify('Ticket imprimé avec succès', 'success');
-      } catch (e: any) {
-        notify(e?.toString() || 'Erreur impression', 'error');
-      }
-    } else {
-      // Web or Virtual PDF
-      const pw = parseInt(localStorage.getItem('aztea_printer_width') || '80');
-      
-      let clientInfoHtml = '';
-      if (sale.customer_name) clientInfoHtml += `<div>Client: ${sale.customer_name}</div>`;
-      if (sale.notes) {
-        try {
-          const parsed = JSON.parse(sale.notes);
-          if (parsed.phone) clientInfoHtml += `<div>Tel: ${parsed.phone}</div>`;
-        } catch (e) {}
-      }
-
-      const htmlContent = `<div style="font-family:'Courier New',monospace;font-size:${pw===58?'10px':'12px'};width:${pw}mm;margin:0 auto;padding:3mm;color:#000">`
-        + `<div style="text-align:center;font-weight:bold">AZTEA PHARMACY & POS</div>`
-        + `<div style="text-align:center;font-size:9px">Brazzaville, Congo</div>`
-        + `<div style="text-align:center;font-size:9px">Tel: +242 05 656 0299</div>`
-        + `<div style="border-top:1px dashed #000;margin:3px 0"></div>`
-        + `<div>Ticket: ${sale.receipt_number}</div>`
-        + `<div>Date: ${new Date(sale.sold_at).toLocaleString('fr-FR')}</div>`
-        + `<div>Caissier: ${user?.name || 'Inconnu'}</div>`
-        + clientInfoHtml
-        + `<div style="border-top:1px dashed #000;margin:3px 0"></div>`
-        + sale.items.map(it => `<div style="display:flex;justify-content:space-between"><span>${it.product_name}</span><span>${it.quantity}x${it.unit_price}F</span></div>`).join('')
-        + `<div style="border-top:1px dashed #000;margin:3px 0"></div>`
-        + `<div style="display:flex;justify-content:space-between;font-weight:bold"><span>Sous-total:</span><span>${sale.subtotal} F</span></div>`
-        + (sale.discount_total > 0 ? `<div style="display:flex;justify-content:space-between"><span>Remise:</span><span>-${sale.discount_total} F</span></div>` : '')
-        + `<div style="border-top:1px dashed #000;margin:3px 0"></div>`
-        + `<div style="display:flex;justify-content:space-between;font-weight:bold"><span>NET A PAYER:</span><span>${sale.total} F</span></div>`
-        + `<div style="border-top:1px dashed #000;margin:3px 0"></div>`
-        + `<div>Mode: ${sale.payment_method}</div>`
-        + `<div style="border-top:1px dashed #000;margin:3px 0"></div>`
-        + `<div style="text-align:center;font-weight:bold">*** MERCI DE VOTRE VISITE ***</div>`
-        + `</div>`;
-
-      if (isVirtualPdf) {
-        // Use html2pdf.js via CDN for direct download
-        notify('Génération du PDF en cours...', 'success');
-        const loadHtml2Pdf = () => new Promise<any>((resolve, reject) => {
-          if ((window as any).html2pdf) return resolve((window as any).html2pdf);
-          const script = document.createElement('script');
-          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
-          script.onload = () => resolve((window as any).html2pdf);
-          script.onerror = () => reject(new Error("Impossible de charger le générateur PDF. Vérifiez votre connexion Internet."));
-          document.head.appendChild(script);
-        });
-
-        try {
-          const html2pdf = await loadHtml2Pdf();
-          const element = document.createElement('div');
-          element.innerHTML = htmlContent;
-          
-          const opt = {
-            margin: 0,
-            filename: `ticket_${sale.receipt_number}.pdf`,
-            image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2 },
-            jsPDF: { unit: 'mm', format: [pw, 200], orientation: 'portrait' }
-          };
-          
-          html2pdf().set(opt).from(element).save();
-          notify('Ticket PDF sauvegardé dans les téléchargements.', 'success');
-        } catch (e) {
-          notify('Erreur lors de la génération PDF.', 'error');
-        }
       } else {
-        // Standard iframe print
-        const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Ticket</title></head><body style="margin:0">${htmlContent}</body></html>`;
-        const iframe = document.createElement('iframe');
-        iframe.style.position = 'fixed';
-        iframe.style.width = '0';
-        iframe.style.height = '0';
-        iframe.style.border = 'none';
-        document.body.appendChild(iframe);
-        const doc = iframe.contentWindow?.document;
-        if (doc) {
-          doc.open();
-          doc.write(html);
-          doc.close();
-          iframe.onload = () => {
-            setTimeout(() => {
-              iframe.contentWindow?.focus();
-              iframe.contentWindow?.print();
-              setTimeout(() => document.body.removeChild(iframe), 1000);
-            }, 500);
-          };
-        }
+        notify('Ticket envoyé à l\'impression', 'success');
       }
+      return;
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Erreur impression';
+      notify(message, 'error');
     }
   };
 
@@ -266,28 +171,170 @@ export default function POS() {
     loadData();
   }, []);
 
-  // Automatically trigger when barcode exactly matches a product
-  useEffect(() => {
-    if (barcodeInput.trim()) {
-      const matched = products.find(p => p.barcode === barcodeInput.trim());
-      if (matched) {
-        addToCart(matched);
-        setBarcodeInput('');
+  const resetBarcodeSession = () => {
+    barcodeTimestampsRef.current = [];
+    setIsManualBarcode(false);
+  };
+
+  const handleBarcodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    const now = Date.now();
+
+    if (value.length === 0) {
+      resetBarcodeSession();
+      setBarcodeInput('');
+      return;
+    }
+
+    if (value.length < barcodeInput.length) {
+      barcodeTimestampsRef.current = [];
+      setIsManualBarcode(true);
+      setBarcodeInput(value);
+      return;
+    }
+
+    barcodeTimestampsRef.current.push(now);
+    const stamps = barcodeTimestampsRef.current;
+
+    if (stamps.length >= 2) {
+      const intervals = stamps.slice(1).map((t, i) => t - stamps[i]);
+      const hasSlowInterval = intervals.some((gap) => gap >= SCAN_CHAR_INTERVAL_MS);
+      const fastRatio = intervals.filter((gap) => gap < SCAN_CHAR_INTERVAL_MS).length / intervals.length;
+      if (hasSlowInterval) {
+        setIsManualBarcode(true);
+      } else if (fastRatio >= 0.8 && value.length >= 4) {
+        setIsManualBarcode(false);
       }
     }
-  }, [barcodeInput, products]);
+
+    setBarcodeInput(value);
+  };
+
+  const handleBarcodePaste = () => {
+    requestAnimationFrame(() => setIsManualBarcode(true));
+  };
+
+  const closeBarcodeErrorModal = useCallback(() => {
+    setBarcodeErrorModal((prev) => {
+      if (prev.isOpen && prev.code && prev.reason) {
+        dismissedBarcodeErrorRef.current = { code: prev.code, reason: prev.reason };
+      }
+      return { isOpen: false, title: '', message: '', code: '', reason: null };
+    });
+  }, []);
+
+  const showBarcodeError = useCallback(
+    (code: string, reason: BarcodeErrorReason, title: string, message: string) => {
+      const dismissed = dismissedBarcodeErrorRef.current;
+      if (dismissed?.code === code && dismissed.reason === reason) {
+        return;
+      }
+      setBarcodeErrorModal((prev) => {
+        if (prev.isOpen && prev.code === code && prev.reason === reason) {
+          return prev;
+        }
+        return { isOpen: true, title, message, code, reason };
+      });
+    },
+    []
+  );
+
+  const processBarcodeCode = useCallback(
+    (rawCode: string) => {
+      const code = rawCode.trim();
+      console.log('[POS] processBarcodeCode:', code);
+      if (!code) return;
+
+      const normalized = code.replace(/\s/g, '');
+      const matched = products.find((p) => {
+        const bc = (p.barcode || '').trim().replace(/\s/g, '');
+        return bc && (bc === normalized || bc === code);
+      });
+
+      console.log('[POS] Produit trouvé:', matched ? matched.name : 'AUCUN', '| produits chargés:', products.length);
+
+      if (!matched) {
+        showBarcodeError(
+          code,
+          'not_found',
+          'Produit introuvable',
+          `Aucun produit ne correspond au code-barres « ${code} ».`
+        );
+        return;
+      }
+
+      if (matched.stock <= 0) {
+        showBarcodeError(
+          code,
+          'out_of_stock',
+          'Rupture de stock',
+          `« ${matched.name} » est en rupture de stock et ne peut pas être ajouté au panier.`
+        );
+        return;
+      }
+
+      const existing = cart.find((item) => item.product.id === matched.id);
+      if (existing && existing.quantity >= matched.stock) {
+        showBarcodeError(
+          code,
+          'insufficient_stock',
+          'Stock insuffisant',
+          `Stock maximum atteint pour « ${matched.name} » (${matched.stock} disponible${matched.stock > 1 ? 's' : ''}).`
+        );
+        return;
+      }
+
+      if (dismissedBarcodeErrorRef.current?.code === code) {
+        dismissedBarcodeErrorRef.current = null;
+      }
+
+      setCart((currentCart) => {
+        const existingItem = currentCart.find((item) => item.product.id === matched.id);
+        if (existingItem) {
+          return currentCart.map((item) =>
+            item.product.id === matched.id ? { ...item, quantity: item.quantity + 1 } : item
+          );
+        }
+        return [...currentCart, { product: matched, quantity: 1 }];
+      });
+      setBarcodeInput('');
+      resetBarcodeSession();
+      notify(`${matched.name} ajouté au panier`, 'success');
+    },
+    [products, cart, showBarcodeError, notify]
+  );
+
+  const attemptBarcodeAdd = () => {
+    processBarcodeCode(barcodeInput);
+  };
+
+  const handleCameraScan = useCallback(
+    (code: string) => {
+      console.log('[POS] Scan caméra reçu:', code);
+      resetBarcodeSession();
+      setIsManualBarcode(false);
+      setBarcodeInput(code);
+      processBarcodeCode(code);
+    },
+    [processBarcodeCode]
+  );
 
   const handleBarcodeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!barcodeInput.trim()) return;
+    if (!barcodeInput.trim() || isManualBarcode) return;
+    attemptBarcodeAdd();
+  };
 
-    const matched = products.find(p => p.barcode === barcodeInput.trim());
-    if (matched) {
-      addToCart(matched);
-      setBarcodeInput('');
-    } else {
-      notify(`Produit introuvable pour le code-barres: ${barcodeInput}`, 'warning');
+  const handleBarcodeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (!barcodeInput.trim() || isManualBarcode) return;
+      attemptBarcodeAdd();
     }
+  };
+
+  const handleManualBarcodeAdd = () => {
+    attemptBarcodeAdd();
   };
 
   const addToCart = (product: POSProduct) => {
@@ -377,21 +424,35 @@ export default function POS() {
       const apiPaymentMethod = paymentMethod === 'momo' ? 'mobile_money' : paymentMethod;
       const clientJson = clientInfo.full_name ? JSON.stringify(clientInfo) : '';
 
+      const cartSnapshot = cart.map((item) => ({ ...item }));
+
       const createdSale = await api.sales.create({
         customer_name: clientInfo.full_name || undefined,
         customer_phone: clientInfo.phone || undefined,
         payment_method: apiPaymentMethod,
         notes: clientJson ? clientJson : `Achat POS - Caissier ${user?.name || 'Inconnu'}`,
-        items: cart.map(item => ({
+        amount_paid: paymentMethod === 'cash' ? numericAmountReceived : total,
+        change_given: paymentMethod === 'cash' ? change : 0,
+        items: cartSnapshot.map((item, idx) => ({
           product_id: item.product.id,
           quantity: item.quantity,
           unit_price: item.product.price,
           tax_rate: item.product.taxRate,
-          discount: 0,
+          discount: idx === 0 ? discount : 0,
         })),
       });
 
-      setReceiptData(createdSale);
+      const barcodeByProduct = Object.fromEntries(
+        cartSnapshot.map((item) => [item.product.id, item.product.barcode || ''])
+      );
+      const saleForReceipt: Sale = {
+        ...createdSale,
+        items: createdSale.items.map((line) => ({
+          ...line,
+          product_barcode: line.product_barcode || barcodeByProduct[line.product_id] || null,
+        })),
+      };
+      setReceiptData(saleForReceipt);
 
       // Reset cart state IMMEDIATELY so the user is not blocked
       setCart([]);
@@ -403,7 +464,7 @@ export default function POS() {
       if (withPrint) {
         setShowReceiptModal(true);
         // Do not await the print so the UI remains interactive
-        printReceipt(createdSale).catch(err => {
+        printReceipt(saleForReceipt).catch(err => {
           console.error(err);
           notify(err?.message || "Erreur lors de l'impression", 'error');
         });
@@ -438,6 +499,13 @@ export default function POS() {
         <button onClick={() => setNotification(null)} className="opacity-70 hover:opacity-100 text-sm cursor-pointer">✕</button>
       </div>
     )}
+    {showCameraScanner && (
+      <CameraBarcodeScanner
+        anchorRef={productTableRef}
+        onScan={handleCameraScan}
+        onClose={() => setShowCameraScanner(false)}
+      />
+    )}
     <div className="h-[calc(100vh-10rem)] grid grid-cols-1 lg:grid-cols-12 gap-8 animate-slide-up select-none">
       
       {/* Product Selection Pane (Left) */}
@@ -458,9 +526,23 @@ export default function POS() {
           </div>
 
           <div className="flex gap-3 h-[38px]">
+            <button
+              type="button"
+              onClick={() => setShowCameraScanner((v) => !v)}
+              className={`shrink-0 flex items-center gap-1.5 px-3 rounded-xl border text-[10px] font-extrabold uppercase tracking-wide transition-all cursor-pointer ${
+                showCameraScanner
+                  ? 'bg-primary dark:bg-blue-600 text-primary-foreground border-primary dark:border-blue-600'
+                  : 'bg-card border-border text-foreground hover:bg-accent'
+              }`}
+              title="Scanner avec la caméra du terminal"
+            >
+              <Camera className="w-4 h-4" />
+              <span className="hidden sm:inline">Caméra</span>
+            </button>
+
             {/* Category Filter */}
             <div className="flex-1 flex items-center bg-card border border-border rounded-xl px-3 focus-within:ring-1 focus-within:ring-primary overflow-hidden">
-              <Tag className="w-4 h-4 text-amber-500 dark:text-amber-400 shrink-0 mr-2 pointer-events-none" />
+              <Tag className="w-4 h-4 text-primary dark:text-blue-600 shrink-0 mr-2 pointer-events-none" />
               <select
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
@@ -473,23 +555,35 @@ export default function POS() {
               </select>
             </div>
 
-            {/* Barcode scanner emulation input */}
-            <form onSubmit={handleBarcodeSubmit} className="flex-1 flex items-center bg-accent/20 border border-border rounded-xl px-3 focus-within:ring-1 focus-within:ring-primary overflow-hidden">
-              <Barcode className="w-4 h-4 text-amber-500 dark:text-amber-400 shrink-0 mr-2 pointer-events-none" />
+            {/* Barcode scanner / manual code input */}
+            <form onSubmit={handleBarcodeSubmit} className="flex-1 flex items-center gap-2 bg-accent/20 border border-border rounded-xl px-3 focus-within:ring-1 focus-within:ring-primary overflow-hidden">
+              <Barcode className="w-4 h-4 text-primary dark:text-blue-600 shrink-0 pointer-events-none" />
               <input
                 type="text"
                 placeholder="Scanner / Saisir code..."
                 value={barcodeInput}
-                onChange={(e) => setBarcodeInput(e.target.value)}
-                className="flex-1 h-full w-full bg-transparent focus:outline-none text-xs font-semibold text-foreground placeholder:text-muted-foreground/70"
+                onChange={handleBarcodeChange}
+                onKeyDown={handleBarcodeKeyDown}
+                onPaste={handleBarcodePaste}
+                className="flex-1 min-w-0 h-full bg-transparent focus:outline-none text-xs font-semibold text-foreground placeholder:text-muted-foreground/70"
               />
+              {isManualBarcode && barcodeInput.trim() && (
+                <button
+                  type="button"
+                  onClick={handleManualBarcodeAdd}
+                  className="shrink-0 px-3 py-1 rounded-lg bg-primary dark:bg-blue-600 text-primary-foreground text-[10px] font-extrabold uppercase tracking-wide hover:opacity-95 transition-opacity cursor-pointer"
+                >
+                  Ajouter
+                </button>
+              )}
             </form>
           </div>
         </div>
 
         {/* Catalog Table List */}
+        <div ref={productTableRef} className="flex-1 min-h-0 flex flex-col">
         {loading ? (
-          <div className="flex-1 flex items-center justify-center text-muted-foreground font-semibold">
+          <div className="flex-1 flex items-center justify-center text-muted-foreground font-semibold bg-card border border-border rounded-2xl">
             Chargement du catalogue...
           </div>
         ) : (
@@ -542,9 +636,9 @@ export default function POS() {
                                   e.stopPropagation();
                                   addToCart(product);
                                 }}
-                                className="w-6.5 h-6.5 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center hover:bg-amber-500 hover:text-white transition-all ml-auto cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                className="w-6.5 h-6.5 rounded-lg bg-primary text-white dark:bg-blue-600 flex items-center justify-center hover:bg-amber-500 hover:text-white transition-all ml-auto cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                               >
-                                <Plus className="w-3.5 h-3.5" />
+                                <Plus className="w-3.5 h-3.5 dark:text-white" />
                               </button>
                             </td>
                           </tr>
@@ -585,6 +679,7 @@ export default function POS() {
             </div>
           </div>
         )}
+        </div>
       </div>
 
       {/* Cart & Checkout Panel (Right) */}
@@ -594,7 +689,7 @@ export default function POS() {
         <div className="p-4 border-b border-border flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="relative">
-              <ShoppingCart className="w-5 h-5 text-amber-500 dark:text-amber-400" />
+              <ShoppingCart className="w-5 h-5 text-primary dark:text-blue-600" />
               {cart.length > 0 && (
                 <span className="absolute -top-3 left-4 bg-rose-500 text-white text-[9px] font-extrabold px-1.5 py-0.5 rounded-full shadow-sm whitespace-nowrap z-10">
                   {total.toLocaleString('fr-FR')} F
@@ -786,6 +881,31 @@ export default function POS() {
         </div>
       </div>
 
+      {/* Barcode scan / manual entry error modal */}
+      {barcodeErrorModal.isOpen && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 z-[100] animate-scale-in select-none">
+          <div className="bg-card border border-border w-full max-w-sm rounded-3xl shadow-2xl p-8 relative flex flex-col items-center text-center">
+            <button
+              onClick={closeBarcodeErrorModal}
+              className="absolute top-4 right-4 p-2 rounded-full hover:bg-muted text-muted-foreground transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="w-20 h-20 bg-amber-500/10 rounded-full flex items-center justify-center mb-5 text-amber-600 shadow-inner">
+              <AlertTriangle className="w-10 h-10" />
+            </div>
+            <h3 className="text-xl font-extrabold text-foreground mb-2">{barcodeErrorModal.title}</h3>
+            <p className="text-sm font-semibold text-muted-foreground mb-8">{barcodeErrorModal.message}</p>
+            <button
+              onClick={closeBarcodeErrorModal}
+              className="w-full py-3.5 rounded-2xl bg-primary dark:bg-blue-600 text-primary-foreground text-xs font-bold shadow-md transition-colors cursor-pointer"
+            >
+              Fermer
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Delete Confirmation Modal */}
       <ConfirmModal
         isOpen={deleteConfirm.isOpen}
@@ -805,7 +925,7 @@ export default function POS() {
         <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-scale-in">
           <div className="bg-card border border-border w-full max-w-sm rounded-3xl shadow-2xl p-6">
             <h3 className="font-bold text-lg text-foreground mb-4 flex items-center gap-2">
-              <UserPlus className="w-5 h-5 text-primary" />
+              <UserPlus className="w-5 h-5 text-primary dark:text-blue-600" />
               Enregistrer Client
             </h3>
             <div className="space-y-4">
@@ -855,7 +975,7 @@ export default function POS() {
                   }
                   setShowClientModal(false);
                 }}
-                className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow-sm hover:bg-opacity-95 transition-all cursor-pointer"
+                className="flex-1 py-2.5 rounded-xl bg-primary dark:bg-blue-600 text-primary-foreground text-xs font-bold shadow-sm hover:bg-opacity-95 transition-all cursor-pointer"
               >
                 Confirmer
               </button>
@@ -906,34 +1026,81 @@ export default function POS() {
                   <p>Date: {new Date(receiptData.sold_at).toLocaleString('fr-FR')}</p>
                   <p>Caissier: {user?.name || 'Inconnu'}</p>
                   {receiptData.customer_name && <p>Client: {receiptData.customer_name}</p>}
-                  <p>Périphérique : {localStorage.getItem('aztea_default_printer') || 'Imprimante système par défaut'}</p>
+                  <p>Périphérique : {getTicketLayout().printerLabel || 'Non configuré'}</p>
                 </div>
 
-                <div className="border-t border-dashed border-border/50 pt-2 space-y-1">
-                  {receiptData.items.map((item, i) => (
-                    <div key={i} className="flex justify-between">
-                      <span className="truncate max-w-[180px]">{item.product_name}</span>
-                      <span className="shrink-0 ml-2">{item.quantity} x {item.unit_price}F</span>
-                    </div>
-                  ))}
+                <div className="border-t border-dashed border-border/50 pt-2 space-y-2">
+                  {receiptData.items.map((item, i) => {
+                    const barcodeHtml = renderBarcodeSvg(getItemBarcode(item), 26);
+                    return (
+                      <div key={i} className="pb-2 border-b border-dotted border-border/40 last:border-0 space-y-1.5">
+                        <div className="flex justify-between gap-2">
+                          <span className="truncate max-w-[180px] font-semibold">{item.product_name}</span>
+                          <span className="shrink-0 ml-2">{item.quantity} x {item.unit_price}F</span>
+                        </div>
+                        {barcodeHtml ? (
+                          <div
+                            className="flex justify-center pt-1 border-t border-dotted border-border/30 overflow-hidden"
+                            dangerouslySetInnerHTML={{ __html: barcodeHtml }}
+                          />
+                        ) : null}
+                      </div>
+                    );
+                  })}
                 </div>
 
-                <div className="border-t border-dashed border-border/50 pt-2 space-y-0.5">
-                  <div className="flex justify-between font-bold">
-                    <span>Sous-total:</span>
-                    <span>{receiptData.subtotal} F</span>
-                  </div>
-                  {receiptData.discount_total > 0 && (
-                    <div className="flex justify-between text-rose-500 font-semibold">
-                      <span>Remise:</span>
-                      <span>-{receiptData.discount_total} F</span>
+                {(() => {
+                  const t = computeReceiptTotals(receiptData);
+                  return (
+                    <div className="border-t border-dashed border-border/50 pt-2 space-y-0.5">
+                      <div className="flex justify-between font-bold">
+                        <span>Sous-total:</span>
+                        <span>{t.subtotal} F</span>
+                      </div>
+                      {t.discount > 0 && (
+                        <div className="flex justify-between text-rose-500 font-semibold">
+                          <span>Remise:</span>
+                          <span>-{t.discount} F</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between">
+                        <span>Montant HT:</span>
+                        <span>{t.ht} F</span>
+                      </div>
+                      <p className="text-[10px] font-bold pt-1">Taxes appliquées</p>
+                      {t.articleTaxes > 0 && (
+                        <div className="flex justify-between pl-2 text-[10px]">
+                          <span>Taxes articles:</span>
+                          <span>{t.articleTaxes} F</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between pl-2 text-[10px]">
+                        <span>TVA:</span>
+                        <span>{t.tva} F</span>
+                      </div>
+                      <div className="flex justify-between font-semibold">
+                        <span>Total taxes:</span>
+                        <span>{t.totalTaxes} F</span>
+                      </div>
+                      <div className="flex justify-between font-bold text-xs pt-1 border-t border-dotted border-border/30">
+                        <span>NET A PAYER:</span>
+                        <span>{t.netAPayer} F</span>
+                      </div>
+                      {receiptData.payment_method === 'cash' && (
+                        <>
+                          <div className="flex justify-between">
+                            <span>Montant reçu:</span>
+                            <span>{receiptData.amount_paid || t.netAPayer} F</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Monnaie rendue:</span>
+                            <span>{receiptData.change_given} F</span>
+                          </div>
+                        </>
+                      )}
                     </div>
-                  )}
-                  <div className="flex justify-between font-bold text-xs pt-1 border-t border-dotted border-border/30">
-                    <span>NET A PAYER:</span>
-                    <span>{receiptData.total} F</span>
-                  </div>
-                </div>
+                  );
+                })()}
 
                 <div className="border-t border-dashed border-border/50 pt-2 space-y-0.5">
                   <p className="capitalize">Mode: {receiptData.payment_method === 'cash' ? 'Espèces' : receiptData.payment_method === 'mobile_money' ? 'Mobile Money' : 'Carte'}</p>

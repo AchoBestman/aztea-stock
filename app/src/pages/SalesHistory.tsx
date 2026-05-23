@@ -5,6 +5,13 @@ import {
 } from 'lucide-react';
 import { api, Sale, TenantResponse } from '../services/api';
 import { useAuthStore } from '../store/authStore';
+import { getTicketPrinterConfig, isTauriApp } from '../utils/hardwareConfig';
+import {
+  computeReceiptTotals,
+  paymentLabel as receiptPaymentLabel,
+  renderBarcodeSvg,
+} from '../utils/receipt';
+import { printReportHtml, printTicketFromSale } from '../utils/printService';
 import toast from 'react-hot-toast';
 
 export default function SalesHistory() {
@@ -38,6 +45,8 @@ export default function SalesHistory() {
 
   // Detail modal
   const [detailSale, setDetailSale] = useState<Sale | null>(null);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [printingReceiptId, setPrintingReceiptId] = useState<string | null>(null);
 
   useEffect(() => {
     if (isSystem) {
@@ -90,40 +99,48 @@ export default function SalesHistory() {
     return { text: s, cls: 'bg-muted text-muted-foreground' };
   };
 
-  const paymentLabel = (m: string) =>
-    m === 'cash' ? 'Espèces' : m === 'mobile_money' ? 'Mobile Money' : m === 'card' ? 'Carte' : m;
+  const paymentLabel = receiptPaymentLabel;
 
   // Export handlers
   const handleExportPdf = async () => {
-    if (!canExportPdf) { toast.error('Permission insuffisante'); return; }
+    if (!canExportPdf) {
+      toast.error('Permission insuffisante');
+      return;
+    }
+    if (exportingPdf) return;
+
+    setExportingPdf(true);
+    const toastId = 'sales-pdf-export';
+    toast.loading('Génération du rapport PDF...', { id: toastId });
+
     try {
       const data = await api.sales.export('pdf', startDate, endDate, selectedTenant);
       const htmlContent = buildPrintableHtml(data);
-      
-      toast.success('Génération du rapport PDF en cours...');
-      const loadHtml2Pdf = () => new Promise<any>((resolve, reject) => {
-        if ((window as any).html2pdf) return resolve((window as any).html2pdf);
-        const script = document.createElement('script');
-        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
-        script.onload = () => resolve((window as any).html2pdf);
-        script.onerror = () => reject(new Error("Impossible de charger le générateur PDF. Vérifiez votre connexion Internet."));
-        document.head.appendChild(script);
-      });
 
-      const html2pdf = await loadHtml2Pdf();
-      const element = document.createElement('div');
-      element.innerHTML = htmlContent;
-      
-      const opt = {
-        margin: 10,
-        filename: `rapport_ventes_${new Date().toISOString().split('T')[0]}.pdf`,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2 },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-      };
-      
-      html2pdf().set(opt).from(element).save();
-    } catch (e: any) { toast.error(e.message || 'Erreur export PDF'); }
+      const result = await printReportHtml(
+        htmlContent,
+        `rapport_ventes_${new Date().toISOString().split('T')[0]}.pdf`
+      );
+
+      if (result.mode === 'pdf') {
+        toast.success(
+          result.savedPath
+            ? `PDF enregistré : ${result.savedPath}`
+            : 'Rapport PDF enregistré dans Téléchargements',
+          { id: toastId }
+        );
+      } else if (result.mode === 'printer') {
+        toast.success('Rapport envoyé à l\'imprimante', { id: toastId });
+      } else {
+        window.print();
+        toast.success('Utilisez la boîte de dialogue pour imprimer ou enregistrer en PDF', { id: toastId });
+      }
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Erreur export PDF';
+      toast.error(message, { id: toastId });
+    } finally {
+      setExportingPdf(false);
+    }
   };
 
   const handleExportCSV = async () => {
@@ -170,136 +187,37 @@ export default function SalesHistory() {
   };
 
   const handlePrintReceipt = async (sale: Sale) => {
-    if (!canPrint) { toast.error('Permission insuffisante pour imprimer'); return; }
-    const printerName = localStorage.getItem('aztea_default_printer') || '';
-    const isTauri = typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__ !== undefined;
-    const isVirtualPdf = printerName.toLowerCase().includes('pdf');
+    if (!canPrint) {
+      toast.error('Permission insuffisante pour imprimer');
+      return;
+    }
+    if (printingReceiptId) return;
 
-    if (isTauri && !isVirtualPdf) {
-      try {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const w = parseInt(localStorage.getItem('aztea_printer_width') || '80') === 58 ? 32 : 42;
-        const center = (s: string) => { const pad = Math.max(0, Math.floor((w - s.length) / 2)); return ' '.repeat(pad) + s; };
-        const line = (l: string, r: string) => { const space = Math.max(1, w - l.length - r.length); return l + ' '.repeat(space) + r; };
-        const sep = '-'.repeat(w);
-        const lines = [center('AZTEA PHARMACY & POS'), center('Brazzaville, Congo'), sep,
-          `Ticket: ${sale.receipt_number}`, `Date: ${fmtDate(sale.sold_at)}`, sep];
-          
-        if (sale.customer_name) lines.push(`Client: ${sale.customer_name}`);
-        if (sale.notes) {
-          try {
-            const parsed = JSON.parse(sale.notes);
-            if (parsed.phone) lines.push(`Tel: ${parsed.phone}`);
-          } catch(e) {}
-        }
-        
-        lines.push(sep, ...sale.items.map(i => line(i.product_name.substring(0, w - 16), `${i.quantity}x${i.unit_price}F`)),
-          sep, line('Total:', `${sale.total} F`), sep, center('*** MERCI ***'), '', '');
-          
-        if (!printerName) {
-           toast.error('Aucune imprimante configurée. Veuillez la définir dans les Paramètres.');
-           return;
-        }
-        await invoke('print_receipt', { printerName, content: lines.join('\n') });
-        toast.success('Reçu imprimé');
-      } catch (e: any) { toast.error(e?.toString() || 'Erreur impression'); }
-    } else {
-      const pw = parseInt(localStorage.getItem('aztea_printer_width') || '80');
-      
-      let clientInfoHtml = '';
-      if (sale.customer_name) clientInfoHtml += `<div>Client: ${sale.customer_name}</div>`;
-      if (sale.notes) {
-        try {
-          const parsed = JSON.parse(sale.notes);
-          if (parsed.phone) clientInfoHtml += `<div>Tel: ${parsed.phone}</div>`;
-        } catch (e) {}
-      }
-
-      const htmlContent = `<div style="font-family:'Courier New',monospace;font-size:${pw===58?'10px':'12px'};width:${pw}mm;margin:0 auto;padding:3mm;color:#000">`
-        + `<div style="text-align:center;font-weight:bold">AZTEA PHARMACY & POS</div>`
-        + `<div style="text-align:center;font-size:9px">Brazzaville, Congo</div>`
-        + `<div style="text-align:center;font-size:9px">Tel: +242 05 656 0299</div>`
-        + `<div style="border-top:1px dashed #000;margin:3px 0"></div>`
-        + `<div>Ticket: ${sale.receipt_number}</div>`
-        + `<div>Date: ${fmtDate(sale.sold_at)}</div>`
-        + clientInfoHtml
-        + `<div style="border-top:1px dashed #000;margin:3px 0"></div>`
-        + sale.items.map(it => `<div style="display:flex;justify-content:space-between"><span>${it.product_name}</span><span>${it.quantity}x${it.unit_price}F</span></div>`).join('')
-        + `<div style="border-top:1px dashed #000;margin:3px 0"></div>`
-        + `<div style="display:flex;justify-content:space-between;font-weight:bold"><span>Total:</span><span>${sale.total} F</span></div>`
-        + `<div style="border-top:1px dashed #000;margin:3px 0"></div>`
-        + `<div>Mode: ${paymentLabel(sale.payment_method)}</div>`
-        + `<div style="border-top:1px dashed #000;margin:3px 0"></div>`
-        + `<div style="text-align:center;font-weight:bold">*** MERCI DE VOTRE VISITE ***</div>`
-        + `</div>`;
-
-      if (isVirtualPdf) {
-        toast.success('Génération du PDF en cours...');
-        const loadHtml2Pdf = () => new Promise<any>((resolve, reject) => {
-          if ((window as any).html2pdf) return resolve((window as any).html2pdf);
-          const script = document.createElement('script');
-          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
-          script.onload = () => resolve((window as any).html2pdf);
-          script.onerror = () => reject(new Error("Impossible de charger le générateur PDF. Vérifiez votre connexion Internet."));
-          document.head.appendChild(script);
-        });
-
-        try {
-          const html2pdf = await loadHtml2Pdf();
-          const element = document.createElement('div');
-          element.innerHTML = htmlContent;
-          
-          const opt = {
-            margin: 0,
-            filename: `ticket_${sale.receipt_number}.pdf`,
-            image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2 },
-            jsPDF: { unit: 'mm', format: [pw, 200], orientation: 'portrait' }
-          };
-          
-          html2pdf().set(opt).from(element).save();
-          toast.success('Ticket PDF sauvegardé dans les téléchargements.');
-        } catch (e) {
-          toast.error('Erreur lors de la génération PDF.');
-        }
+    const toastId = `ticket-${sale.id}`;
+    setPrintingReceiptId(sale.id);
+    try {
+      const { isPdf } = getTicketPrinterConfig();
+      toast.loading('Génération du ticket...', { id: toastId });
+      const savedPath = await printTicketFromSale(sale, `ticket_${sale.receipt_number}.pdf`);
+      if (isPdf) {
+        toast.success(
+          typeof savedPath === 'string' && savedPath
+            ? `PDF enregistré : ${savedPath}`
+            : 'Ticket PDF enregistré dans Téléchargements',
+          { id: toastId }
+        );
+      } else if (isTauriApp()) {
+        toast.success('Reçu imprimé', { id: toastId });
       } else {
-        const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Ticket</title></head><body style="margin:0">${htmlContent}</body></html>`;
-        const iframe = document.createElement('iframe');
-        iframe.style.position = 'fixed';
-        iframe.style.width = '0';
-        iframe.style.height = '0';
-        iframe.style.border = 'none';
-        document.body.appendChild(iframe);
-        const doc = iframe.contentWindow?.document;
-        if (doc) {
-          doc.open();
-          doc.write(html);
-          doc.close();
-          iframe.onload = () => {
-            setTimeout(() => {
-              iframe.contentWindow?.focus();
-              iframe.contentWindow?.print();
-              setTimeout(() => document.body.removeChild(iframe), 1000);
-            }, 500);
-          };
-        }
+        toast.success('Reçu envoyé à l\'impression', { id: toastId });
       }
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Erreur impression', { id: toastId });
+    } finally {
+      setPrintingReceiptId(null);
     }
   };
 
-  const buildReceiptHtml = (sale: Sale) => {
-    const pw = parseInt(localStorage.getItem('aztea_printer_width') || '80');
-    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Reçu</title>
-<style>@page{size:${pw}mm auto;margin:0}body{font-family:'Courier New',monospace;font-size:${pw===58?'10px':'12px'};width:${pw}mm;margin:0 auto;padding:3mm;color:#000}
-.c{text-align:center}.b{font-weight:bold}.d{border-top:1px dashed #000;margin:3px 0}.r{display:flex;justify-content:space-between}</style></head><body>
-<div class="c b">AZTEA PHARMACY & POS</div><div class="c" style="font-size:9px">Brazzaville, Congo</div><div class="d"></div>
-<div>Ticket: ${sale.receipt_number}</div><div>Date: ${fmtDate(sale.sold_at)}</div><div class="d"></div>
-${sale.items.map(i => `<div class="r"><span>${i.product_name}</span><span>${i.quantity}x${i.unit_price}F</span></div>`).join('')}
-<div class="d"></div><div class="r b"><span>Total:</span><span>${sale.total} F</span></div><div class="d"></div>
-<div>Mode: ${paymentLabel(sale.payment_method)}</div><div class="d"></div>
-<div class="c b">*** MERCI DE VOTRE VISITE ***</div>
-</body></html>`;
-  };
 
   const buildPrintableHtml = (data: Sale[]) => {
     const totalRevenue = data.filter(s => s.status === 'completed').reduce((a, s) => a + s.total, 0);
@@ -333,7 +251,7 @@ ${data.map(s => `<tr><td>${s.receipt_number}</td><td>${fmtDate(s.sold_at)}</td><
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <Receipt className="w-6 h-6 text-primary" />
+            <Receipt className="w-6 h-6 text-primary dark:text-blue-600" />
             Historique des Ventes
           </h1>
           <p className="text-xs text-muted-foreground font-semibold mt-0.5">
@@ -342,9 +260,13 @@ ${data.map(s => `<tr><td>${s.receipt_number}</td><td>${fmtDate(s.sold_at)}</td><
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {canExportPdf && (
-            <button onClick={handleExportPdf}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-all shadow-md cursor-pointer">
-              <FileText className="w-4 h-4" /><span>Export PDF</span>
+            <button
+              onClick={handleExportPdf}
+              disabled={exportingPdf}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary dark:bg-blue-600 text-primary-foreground text-xs font-bold hover:opacity-90 transition-all shadow-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <FileText className="w-4 h-4" />
+              <span>{exportingPdf ? 'Génération…' : 'Export PDF'}</span>
             </button>
           )}
           {canExportExcel && (
@@ -383,7 +305,7 @@ ${data.map(s => `<tr><td>${s.receipt_number}</td><td>${fmtDate(s.sold_at)}</td><
         </div>
 
         <div className="flex items-center gap-2 h-[34px]">
-          <Calendar className="w-4 h-4 text-primary shrink-0" />
+          <Calendar className="w-4 h-4 text-primary dark:text-blue-600 shrink-0" />
           <input type="date" value={startDate} onChange={e => { setStartDate(e.target.value); setPage(1); }}
             className="h-full px-3 bg-accent/20 border border-border rounded-xl text-xs font-bold focus:outline-none" />
           <span className="text-xs text-muted-foreground font-bold">au</span>
@@ -432,7 +354,7 @@ ${data.map(s => `<tr><td>${s.receipt_number}</td><td>${fmtDate(s.sold_at)}</td><
                       <td className="py-3.5 px-3 text-center font-semibold">{sale.items.length}</td>
                       <td className="py-3.5 px-3 text-right font-bold text-foreground">{fmt(sale.total)}</td>
                       <td className="py-3.5 px-3 text-center">
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary/5 text-primary">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary/5 text-primary dark:text-blue-600">
                           {paymentLabel(sale.payment_method)}
                         </span>
                       </td>
@@ -448,9 +370,13 @@ ${data.map(s => `<tr><td>${s.receipt_number}</td><td>${fmtDate(s.sold_at)}</td><
                             <Eye className="w-3.5 h-3.5" />
                           </button>
                           {canPrint && (
-                            <button onClick={() => handlePrintReceipt(sale)} title="Imprimer reçu"
-                              className="w-7 h-7 rounded-lg bg-accent/50 text-foreground flex items-center justify-center hover:bg-emerald-500 hover:text-white transition-all cursor-pointer">
-                              <Printer className="w-3.5 h-3.5" />
+                            <button
+                              onClick={() => handlePrintReceipt(sale)}
+                              disabled={printingReceiptId === sale.id}
+                              title="Imprimer reçu"
+                              className="w-7 h-7 rounded-lg bg-accent/50 text-foreground flex items-center justify-center hover:bg-emerald-500 hover:text-white transition-all cursor-pointer disabled:opacity-50 disabled:cursor-wait"
+                            >
+                              <Printer className={`w-3.5 h-3.5 ${printingReceiptId === sale.id ? 'animate-pulse' : ''}`} />
                             </button>
                           )}
                         </div>
@@ -528,31 +454,78 @@ ${data.map(s => `<tr><td>${s.receipt_number}</td><td>${fmtDate(s.sold_at)}</td><
                 <h4 className="text-xs font-extrabold text-foreground uppercase mb-2">Articles</h4>
                 <div className="space-y-2">
                   {detailSale.items.map((item, i) => (
-                    <div key={i} className="flex justify-between items-center text-xs p-2.5 bg-muted/20 rounded-xl border border-border/50">
-                      <div>
-                        <p className="font-bold text-foreground">{item.product_name}</p>
-                        <p className="text-[10px] text-muted-foreground">{item.quantity} × {fmt(item.unit_price)}</p>
+                    <div key={i} className="text-xs p-2.5 bg-muted/20 rounded-xl border border-border/50">
+                      <div className="flex justify-between gap-3 items-start">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-bold text-foreground leading-tight">{item.product_name}</p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            {item.quantity} × {fmt(item.unit_price)}
+                          </p>
+                        </div>
+                        <span className="font-extrabold text-foreground shrink-0">{fmt(item.line_total)}</span>
                       </div>
-                      <span className="font-extrabold text-foreground">{fmt(item.line_total)}</span>
                     </div>
                   ))}
                 </div>
               </div>
 
               <div className="space-y-2 pt-3 border-t border-border">
-                {[
-                  ['Sous-total', fmt(detailSale.subtotal)],
-                  ['Taxes', fmt(detailSale.tax_total)],
-                  ['Remise', detailSale.discount_total > 0 ? `-${fmt(detailSale.discount_total)}` : fmt(0)],
-                ].map(([l, v], i) => (
-                  <div key={i} className="flex justify-between text-xs font-semibold text-muted-foreground">
-                    <span>{l}</span><span className="text-foreground">{v}</span>
-                  </div>
-                ))}
-                <div className="flex justify-between text-sm font-extrabold text-foreground pt-2 border-t border-border/50">
-                  <span>Total</span><span className="text-primary">{fmt(detailSale.total)}</span>
-                </div>
+                {(() => {
+                  const t = computeReceiptTotals(detailSale);
+                  return (
+                    <>
+                      <div className="flex justify-between text-xs font-semibold text-muted-foreground">
+                        <span>Sous-total</span><span className="text-foreground">{fmt(t.subtotal)}</span>
+                      </div>
+                      {t.discount > 0 && (
+                        <div className="flex justify-between text-xs font-semibold text-muted-foreground">
+                          <span>Remise</span><span className="text-rose-500">-{fmt(t.discount)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between text-xs font-semibold text-muted-foreground">
+                        <span>Montant HT</span><span className="text-foreground">{fmt(t.ht)}</span>
+                      </div>
+                      <p className="text-[10px] font-extrabold text-foreground uppercase pt-1">Taxes appliquées</p>
+                      <div className="flex justify-between text-xs font-semibold text-muted-foreground pl-2">
+                        <span>TVA</span><span className="text-foreground">{fmt(t.tva)}</span>
+                      </div>
+                      {t.articleTaxes > 0 && (
+                        <div className="flex justify-between text-xs font-semibold text-muted-foreground pl-2">
+                          <span>Autres taxes</span><span className="text-foreground">{fmt(t.articleTaxes)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between text-xs font-bold text-foreground">
+                        <span>Total taxes</span><span>{fmt(t.totalTaxes)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm font-extrabold text-foreground pt-2 border-t border-border/50">
+                        <span>NET A PAYER</span><span className="text-primary">{fmt(t.netAPayer)}</span>
+                      </div>
+                    </>
+                  );
+                })()}
+                {detailSale.payment_method === 'cash' && (
+                  <>
+                    <div className="flex justify-between text-xs font-semibold text-muted-foreground">
+                      <span>Montant reçu</span>
+                      <span className="text-foreground">{fmt(detailSale.amount_paid || computeReceiptTotals(detailSale).netAPayer)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs font-semibold text-muted-foreground">
+                      <span>Monnaie rendue</span>
+                      <span className="text-foreground">{fmt(detailSale.change_given)}</span>
+                    </div>
+                  </>
+                )}
               </div>
+
+              {(() => {
+                const barcodeHtml = renderBarcodeSvg(detailSale.receipt_number || '', 22);
+                return barcodeHtml ? (
+                  <div className="flex flex-col items-center pt-2 pb-1">
+                    <p className="text-[9px] text-muted-foreground mb-1">Code de vérification</p>
+                    <div dangerouslySetInnerHTML={{ __html: barcodeHtml }} />
+                  </div>
+                ) : null;
+              })()}
             </div>
 
             {parsedClient && (
@@ -582,9 +555,13 @@ ${data.map(s => `<tr><td>${s.receipt_number}</td><td>${fmtDate(s.sold_at)}</td><
                 Fermer
               </button>
               {canPrint && (
-                <button onClick={() => handlePrintReceipt(detailSale)}
-                  className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow-sm hover:opacity-90 transition-all cursor-pointer flex items-center justify-center gap-1.5">
-                  <Printer className="w-3.5 h-3.5" /><span>Imprimer</span>
+                <button
+                  onClick={() => handlePrintReceipt(detailSale)}
+                  disabled={printingReceiptId === detailSale.id}
+                  className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow-sm hover:opacity-90 transition-all cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-60 disabled:cursor-wait"
+                >
+                  <Printer className={`w-3.5 h-3.5 ${printingReceiptId === detailSale.id ? 'animate-pulse' : ''}`} />
+                  <span>{printingReceiptId === detailSale.id ? 'Génération…' : 'Imprimer'}</span>
                 </button>
               )}
             </div>

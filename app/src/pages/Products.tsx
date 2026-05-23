@@ -202,7 +202,7 @@ export default function Products() {
             className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs shadow-md transition-all ${
               isCashier
                 ? 'bg-muted text-muted-foreground cursor-not-allowed opacity-60'
-                : 'bg-primary text-primary-foreground hover:bg-opacity-95 cursor-pointer'
+                : 'bg-primary dark:bg-blue-600 text-primary-foreground hover:bg-opacity-95 cursor-pointer'
             }`}
           >
             <Plus className="w-4 h-4" />
@@ -234,7 +234,7 @@ export default function Products() {
                   <th className="py-3.5 px-4">Catégorie</th>
                   <th className="py-3.5 px-4">Format / Unité</th>
                   <th className="py-3.5 px-4 text-right">P. Achat (F)</th>
-                  <th className="py-3.5 px-4 text-right text-primary">P. Vente (F)</th>
+                  <th className="py-3.5 px-4 text-right text-primary dark:text-blue-600">P. Vente (F)</th>
                   <th className="py-3.5 px-6 text-right">Actions</th>
                 </tr>
               </thead>
@@ -249,7 +249,7 @@ export default function Products() {
                   filteredProducts.map((prod) => (
                     <tr key={prod.id} className="border-b border-border/50 hover:bg-accent/20 transition-colors font-medium">
                       <td className="py-4 px-6 font-bold text-foreground flex items-center gap-2">
-                        <PackageCheck className="w-4 h-4 text-primary shrink-0" />
+                        <PackageCheck className="w-4 h-4 text-primary dark:text-blue-600 shrink-0" />
                         <span>{prod.name}</span>
                       </td>
                       <td className="py-4 px-4 font-mono text-muted-foreground font-semibold">
@@ -259,7 +259,7 @@ export default function Products() {
                         </span>
                       </td>
                       <td className="py-4 px-4">
-                        <span className="px-2 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-bold">
+                        <span className="px-2 py-0.5 rounded bg-primary/10 dark:text-blue-600 text-primary text-[10px] font-bold">
                           {prod.category_name || 'Général'}
                         </span>
                       </td>
@@ -269,7 +269,7 @@ export default function Products() {
                       <td className="py-4 px-4 text-right font-bold text-foreground">
                         {prod.purchase_price.toLocaleString('fr-FR')} F
                       </td>
-                      <td className="py-4 px-4 text-right font-extrabold text-primary">
+                      <td className="py-4 px-4 text-right font-extrabold text-primary dark:text-blue-600">
                         {prod.selling_price.toLocaleString('fr-FR')} F
                       </td>
                       <td className="py-4 px-6 text-right">
@@ -417,7 +417,7 @@ export default function Products() {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow-sm hover:bg-opacity-95 cursor-pointer"
+                  className="flex-1 py-2.5 rounded-xl bg-primary dark:bg-blue-600 text-primary-foreground text-xs font-bold shadow-sm hover:bg-opacity-95 cursor-pointer"
                 >
                   Ajouter Produit
                 </button>
@@ -485,7 +485,7 @@ export default function Products() {
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-extrabold text-primary uppercase block mb-1">Vente (F)</label>
+                  <label className="text-[10px] font-extrabold text-primary dark:text-blue-600 uppercase block mb-1">Vente (F)</label>
                   <input
                     type="number"
                     required
@@ -521,7 +521,7 @@ export default function Products() {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow-sm hover:bg-opacity-95 cursor-pointer"
+                  className="flex-1 py-2.5 rounded-xl bg-primary dark:bg-blue-600 text-primary-foreground text-xs font-bold shadow-sm hover:bg-opacity-95 cursor-pointer"
                 >
                   Enregistrer
                 </button>

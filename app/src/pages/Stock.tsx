@@ -161,7 +161,7 @@ export default function Stock() {
                 onClick={() => setStatusFilter(status)}
                 className={`px-3 py-1.5 rounded-lg text-[10px] font-extrabold uppercase transition-all cursor-pointer ${
                   statusFilter === status
-                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    ? 'bg-primary dark:bg-blue-600 text-primary-foreground shadow-sm'
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
@@ -175,7 +175,7 @@ export default function Stock() {
             onClick={handleExportCSV}
             className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-card border border-border text-xs font-bold hover:bg-accent text-foreground transition-all cursor-pointer shadow-sm"
           >
-            <Download className="w-4 h-4 text-primary" />
+            <Download className="w-4 h-4 text-primary dark:text-blue-600" />
             <span>Exporter</span>
           </button>
         </div>

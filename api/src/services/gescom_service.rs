@@ -170,8 +170,14 @@ impl GescomService {
         }
 
         let total = subtotal + tax_total - discount_total;
-        let amount_paid = total; // Assumed fully paid
-        let change_given = 0.0;
+        let amount_paid = payload.amount_paid.unwrap_or(total);
+        let change_given = payload.change_given.unwrap_or(0.0);
+
+        if payload.payment_method == "cash" && amount_paid + 0.001 < total {
+            return Err(ApiError::BadRequest(
+                "Le montant reçu doit couvrir le total pour un paiement en espèces.".to_string(),
+            ));
+        }
 
         let receipt_number = format!("REC-{}-{}", chrono::Utc::now().format("%Y%m%d%H%M"), rand::random::<u16>());
         let sold_at = chrono::Utc::now().to_rfc3339();

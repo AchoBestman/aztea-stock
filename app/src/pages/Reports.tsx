@@ -9,6 +9,9 @@ import {
   ArrowDownRight
 } from 'lucide-react';
 import { api, Sale, Product, StockItem } from '../services/api';
+import { stripTailwindFromHtml, wrapPdfDocument } from '../utils/pdfExport';
+import { printReportHtml } from '../utils/printService';
+import toast from 'react-hot-toast';
 
 export default function Reports() {
   const [range, setRange] = useState<'30' | '90' | '365' | 'custom'>('30');
@@ -130,13 +133,20 @@ export default function Reports() {
     }))
     .filter(item => item.product !== undefined); // Exclude deleted products
 
-  const top10MostSold = [...sortedProductSales]
-    .sort((a, b) => b.quantity - a.quantity)
-    .slice(0, 10);
+  const sortedDesc = [...sortedProductSales].sort((a, b) => b.quantity - a.quantity);
+  const totalProducts = sortedDesc.length;
 
-  const top10LeastSold = [...sortedProductSales]
-    .sort((a, b) => a.quantity - b.quantity)
-    .slice(0, 10);
+  let top10MostSold: typeof sortedProductSales = [];
+  let top10LeastSold: typeof sortedProductSales = [];
+
+  if (totalProducts < 20) {
+    const half = Math.floor(totalProducts / 2);
+    top10MostSold = sortedDesc.slice(0, half);
+    top10LeastSold = sortedDesc.slice(half).reverse();
+  } else {
+    top10MostSold = sortedDesc.slice(0, 10);
+    top10LeastSold = sortedDesc.slice(-10).reverse();
+  }
 
   // Average Sale Calculation (Chiffre d'Affaires Moyen par Transaction)
   const averageSaleAmount = transactionCount > 0 ? Math.round(totalRevenue / transactionCount) : 0;
@@ -248,9 +258,48 @@ export default function Reports() {
     document.body.removeChild(link);
   };
 
-  // Trigger Browser PDF export / print
-  const handleExportPDF = () => {
-    window.print();
+  const [exportingPdf, setExportingPdf] = useState(false);
+
+  const handleExportPDF = async () => {
+    if (exportingPdf) return;
+    setExportingPdf(true);
+    const toastId = 'reports-pdf';
+    toast.loading('Génération du rapport...', { id: toastId });
+
+    try {
+      const root = document.querySelector('.print-full-width');
+      const htmlContent = root
+        ? wrapPdfDocument(
+            `<h1>Statistiques et Analyses — AzteaStock</h1>
+<p style="font-size:10px;color:#666">Période: ${range === 'custom' ? `${startDate} → ${endDate}` : `${range} jours`} · Généré le ${new Date().toLocaleString('fr-FR')}</p>
+${stripTailwindFromHtml(root.innerHTML)}`,
+            'Rapport Aztea'
+          )
+        : wrapPdfDocument('<p>Aucun contenu à exporter</p>', 'Rapport Aztea');
+
+      const result = await printReportHtml(
+        htmlContent,
+        `rapport_financier_${range === 'custom' ? 'custom' : range + 'J'}_${new Date().toISOString().split('T')[0]}.pdf`
+      );
+
+      if (result.mode === 'pdf') {
+        toast.success(
+          result.savedPath
+            ? `PDF enregistré : ${result.savedPath}`
+            : 'Rapport PDF enregistré dans Téléchargements',
+          { id: toastId }
+        );
+      } else if (result.mode === 'printer') {
+        toast.success('Rapport envoyé à l\'imprimante', { id: toastId });
+      } else {
+        window.print();
+        toast.success('Utilisez la boîte de dialogue système pour imprimer', { id: toastId });
+      }
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Erreur export PDF', { id: toastId });
+    } finally {
+      setExportingPdf(false);
+    }
   };
 
   // Render SVG Path line coordinates
@@ -313,7 +362,7 @@ export default function Reports() {
                 onClick={() => setRange(days)}
                 className={`px-3 py-1.5 rounded-lg text-[10px] font-extrabold uppercase transition-all cursor-pointer ${
                   range === days
-                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    ? 'bg-primary dark:bg-blue-600 text-primary-foreground shadow-sm'
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
@@ -332,10 +381,11 @@ export default function Reports() {
 
           <button 
             onClick={handleExportPDF}
-            className="flex items-center gap-1 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:bg-opacity-95 transition-all shadow-md cursor-pointer"
+            disabled={exportingPdf}
+            className="flex items-center gap-1 px-4 py-2 rounded-xl bg-primary dark:bg-blue-600 text-primary-foreground text-xs font-bold hover:bg-opacity-95 transition-all shadow-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <FileText className="w-4 h-4" />
-            <span>Exporter PDF</span>
+            <span>{exportingPdf ? 'Génération…' : 'Exporter PDF'}</span>
           </button>
         </div>
       </div>
@@ -344,7 +394,7 @@ export default function Reports() {
       {range === 'custom' && (
         <div className="p-4 bg-card border border-border rounded-2xl flex flex-wrap items-center gap-4 no-print animate-fade-in">
           <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-primary" />
+            <Calendar className="w-4 h-4 text-primary dark:text-blue-600" />
             <span className="text-xs font-bold text-muted-foreground">Intervalle de date :</span>
           </div>
           <div className="flex items-center gap-2">
@@ -391,7 +441,7 @@ export default function Reports() {
 
             <div className="bg-card border border-border p-5 rounded-2xl shadow-sm">
               <span className="text-[10px] font-extrabold text-muted-foreground uppercase block mb-1">Moyenne de Vente / Panier</span>
-              <h3 className="text-xl font-black text-primary">{formatCurrency(averageSaleAmount)}</h3>
+              <h3 className="text-xl font-black text-blue-600 dark:text-blue-400">{formatCurrency(averageSaleAmount)}</h3>
               <span className="text-[9px] text-muted-foreground font-semibold block mt-1">
                 Valeur moyenne facturée
               </span>
@@ -437,7 +487,7 @@ export default function Reports() {
                     <path
                       d={pathD}
                       fill="none"
-                      stroke="var(--primary)"
+                      className="stroke-blue-600 dark:stroke-blue-400"
                       strokeWidth={3}
                       strokeLinecap="round"
                       strokeLinejoin="round"
@@ -454,8 +504,8 @@ export default function Reports() {
                 {/* Gradients */}
                 <defs>
                   <linearGradient id="gradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="var(--primary)" />
-                    <stop offset="100%" stopColor="var(--primary)" stopOpacity="0" />
+                    <stop offset="0%" stopColor="currentColor" className="text-blue-600 dark:text-blue-400" />
+                    <stop offset="100%" stopColor="currentColor" stopOpacity="0" className="text-blue-600 dark:text-blue-400" />
                   </linearGradient>
                 </defs>
 
@@ -469,10 +519,9 @@ export default function Reports() {
                       cx={x} 
                       cy={y} 
                       r={3.5} 
-                      fill="var(--background)" 
-                      stroke="var(--primary)" 
+                      style={{ fill: 'var(--color-card)' }}
                       strokeWidth={2}
-                      className="cursor-pointer hover:r-5 transition-all"
+                      className="stroke-blue-600 dark:stroke-blue-400 cursor-pointer hover:r-5 transition-all"
                     >
                       <title>{`${d[0]}: ${d[1]} F`}</title>
                     </circle>
@@ -602,7 +651,7 @@ export default function Reports() {
                   </div>
                 ) : (
                   categoryPercentages.map((cat, index) => {
-                    const colors = ['bg-primary', 'bg-violet-500', 'bg-emerald-500', 'bg-amber-500'];
+                    const colors = ['bg-blue-600 dark:bg-blue-400', 'bg-violet-500', 'bg-emerald-500', 'bg-amber-500'];
                     const colorClass = colors[index % colors.length];
                     return (
                       <div key={index}>
@@ -629,7 +678,7 @@ export default function Reports() {
 
               <div className="flex items-center justify-around gap-6 py-4">
                 <div className="text-center">
-                  <div className="w-16 h-16 rounded-full border-4 border-primary flex items-center justify-center font-extrabold text-sm text-primary">
+                  <div className="w-16 h-16 rounded-full border-4 border-blue-600 dark:border-blue-400 flex items-center justify-center font-extrabold text-sm text-blue-600 dark:text-blue-400">
                     {paymentPercentages.cash}%
                   </div>
                   <span className="text-[10px] font-bold text-muted-foreground block mt-2">ESPÈCES</span>

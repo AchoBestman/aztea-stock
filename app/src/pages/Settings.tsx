@@ -10,6 +10,14 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { api, getApiBaseUrl } from '../services/api';
+import {
+  migrateLegacyPrinterConfig,
+  PDF_PRINTER_OPTION,
+  REPORT_FORMAT_OPTIONS,
+  STORAGE_KEYS,
+  TICKET_WIDTH_OPTIONS,
+  withPdfPrinterOption,
+} from '../utils/hardwareConfig';
 import toast from 'react-hot-toast';
 
 export default function Settings() {
@@ -24,15 +32,23 @@ export default function Settings() {
   const [printers, setPrinters] = useState<Array<{ name: string; connected: boolean; is_default: boolean }>>([]);
   const [scanners, setScanners] = useState<Array<{ name: string; connected: boolean; is_default: boolean }>>([]);
   
-  const [selectedPrinter, setSelectedPrinter] = useState(() => 
-    localStorage.getItem('aztea_default_printer') || ''
+  const [ticketPrinter, setTicketPrinter] = useState(() => {
+    migrateLegacyPrinterConfig();
+    return localStorage.getItem(STORAGE_KEYS.TICKET_PRINTER) || '';
+  });
+  const [reportPrinter, setReportPrinter] = useState(
+    () => localStorage.getItem(STORAGE_KEYS.REPORT_PRINTER) || PDF_PRINTER_OPTION
   );
-  const [selectedScanner, setSelectedScanner] = useState(() => 
-    localStorage.getItem('aztea_default_scanner') || ''
+  const [selectedScanner, setSelectedScanner] = useState(
+    () => localStorage.getItem(STORAGE_KEYS.SCANNER) || ''
   );
 
-  // Settings states
-  const [printerWidth, setPrinterWidth] = useState(() => localStorage.getItem('aztea_printer_width') || '80');
+  const [ticketWidth, setTicketWidth] = useState(
+    () => localStorage.getItem(STORAGE_KEYS.TICKET_WIDTH) || '80'
+  );
+  const [reportFormat, setReportFormat] = useState(
+    () => localStorage.getItem(STORAGE_KEYS.REPORT_FORMAT) || 'a4'
+  );
   const [apiUrl, setApiUrl] = useState(() => getApiBaseUrl() || 'http://localhost:8000/api/v1');
 
   // Request url change simulation
@@ -66,16 +82,17 @@ export default function Settings() {
           const detectedPrinters = response.printers || [];
           const detectedScanners = response.scanners || [];
           
-          setPrinters(detectedPrinters);
+          setPrinters(withPdfPrinterOption(detectedPrinters));
           setScanners(detectedScanners);
 
-          if (!localStorage.getItem('aztea_default_printer')) {
+          if (!localStorage.getItem(STORAGE_KEYS.TICKET_PRINTER)) {
             const defaultP = detectedPrinters.find((p: any) => p.is_default) || detectedPrinters[0];
-            if (defaultP) {
-              setSelectedPrinter(defaultP.name);
-            }
+            if (defaultP) setTicketPrinter(defaultP.name);
           }
-          if (!localStorage.getItem('aztea_default_scanner')) {
+          if (!localStorage.getItem(STORAGE_KEYS.REPORT_PRINTER)) {
+            setReportPrinter(PDF_PRINTER_OPTION);
+          }
+          if (!localStorage.getItem(STORAGE_KEYS.SCANNER)) {
             const defaultS = detectedScanners.find((s: any) => s.is_default) || detectedScanners[0];
             if (defaultS) {
               setSelectedScanner(defaultS.name);
@@ -86,9 +103,7 @@ export default function Settings() {
           const devs = await navigator.mediaDevices.enumerateDevices();
           const videoDevices = devs.filter(d => d.kind === 'videoinput');
           
-          const fallbackPrinters = [
-            { name: 'Enregistrer au format PDF (Simulé)', connected: true, is_default: true }
-          ];
+          const fallbackPrinters = withPdfPrinterOption([]);
           const fallbackScanners = [
             { name: 'USB HID Barcode Scanner (Simulé)', connected: true, is_default: true },
             ...videoDevices.map(d => ({ name: `Caméra : ${d.label || 'Webcam intégrée'}`, connected: true, is_default: false }))
@@ -97,27 +112,31 @@ export default function Settings() {
           setPrinters(fallbackPrinters);
           setScanners(fallbackScanners);
 
-          if (!localStorage.getItem('aztea_default_printer')) {
-            setSelectedPrinter(fallbackPrinters[0].name);
+          if (!localStorage.getItem(STORAGE_KEYS.TICKET_PRINTER)) {
+            setTicketPrinter(PDF_PRINTER_OPTION);
           }
-          if (!localStorage.getItem('aztea_default_scanner')) {
+          if (!localStorage.getItem(STORAGE_KEYS.REPORT_PRINTER)) {
+            setReportPrinter(PDF_PRINTER_OPTION);
+          }
+          if (!localStorage.getItem(STORAGE_KEYS.SCANNER)) {
             setSelectedScanner(fallbackScanners[0].name);
           }
         }
       } catch (err) {
         console.error("Hardware detection failed:", err);
-        const fallbackPrinters = [
-          { name: 'Enregistrer au format PDF (Simulé)', connected: true, is_default: true }
-        ];
+        const fallbackPrinters = withPdfPrinterOption([]);
         const fallbackScanners = [
           { name: 'USB HID Barcode Scanner (Simulé)', connected: true, is_default: true }
         ];
         setPrinters(fallbackPrinters);
         setScanners(fallbackScanners);
-        if (!localStorage.getItem('aztea_default_printer')) {
-          setSelectedPrinter(fallbackPrinters[0].name);
+        if (!localStorage.getItem(STORAGE_KEYS.TICKET_PRINTER)) {
+          setTicketPrinter(PDF_PRINTER_OPTION);
         }
-        if (!localStorage.getItem('aztea_default_scanner')) {
+        if (!localStorage.getItem(STORAGE_KEYS.REPORT_PRINTER)) {
+          setReportPrinter(PDF_PRINTER_OPTION);
+        }
+        if (!localStorage.getItem(STORAGE_KEYS.SCANNER)) {
           setSelectedScanner(fallbackScanners[0].name);
         }
       }
@@ -175,10 +194,11 @@ export default function Settings() {
       }
     }
 
-    // Save hardware choices
-    localStorage.setItem('aztea_default_printer', selectedPrinter);
-    localStorage.setItem('aztea_default_scanner', selectedScanner);
-    localStorage.setItem('aztea_printer_width', printerWidth);
+    localStorage.setItem(STORAGE_KEYS.TICKET_PRINTER, ticketPrinter);
+    localStorage.setItem(STORAGE_KEYS.TICKET_WIDTH, ticketWidth);
+    localStorage.setItem(STORAGE_KEYS.REPORT_PRINTER, reportPrinter);
+    localStorage.setItem(STORAGE_KEYS.REPORT_FORMAT, reportFormat);
+    localStorage.setItem(STORAGE_KEYS.SCANNER, selectedScanner);
     
     toast.success("Paramètres enregistrés localement avec succès !");
   };
@@ -200,7 +220,7 @@ export default function Settings() {
       {/* License Panel */}
       <div className="bg-card border border-border rounded-3xl p-6 shadow-sm space-y-4">
         <div className="flex items-center gap-3">
-          <Key className="w-5 h-5 text-primary dark:text-amber-400" />
+          <Key className="w-5 h-5 text-primary dark:text-blue-600" />
           <h3 className="font-bold text-sm text-foreground">Gestion de la Licence</h3>
         </div>
 
@@ -243,7 +263,7 @@ export default function Settings() {
               <button
                 type="submit"
                 disabled={isActivating || !newKey.trim()}
-                className="px-4 py-2 bg-primary dark:bg-amber-500 text-primary-foreground dark:text-amber-950 text-xs font-bold rounded-xl cursor-pointer hover:bg-opacity-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-2 bg-primary dark:bg-blue-600 text-primary-foreground text-xs font-bold rounded-xl cursor-pointer hover:bg-opacity-95 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isActivating ? 'Activation...' : 'Activer'}
               </button>
@@ -255,81 +275,118 @@ export default function Settings() {
       {/* Hardware Panel - Dynamic Devices detection */}
       <div className="bg-card border border-border rounded-3xl p-6 shadow-sm space-y-6">
         <div className="flex items-center gap-3">
-          <Printer className="w-5 h-5 text-primary dark:text-amber-400" />
+          <Printer className="w-5 h-5 text-primary dark:text-blue-600" />
           <h3 className="font-bold text-sm text-foreground">Périphériques Matériels Connectés</h3>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Printer Configuration */}
-          <div className="space-y-4">
+        <div className="space-y-8">
+          {/* 1. Imprimante de ticket */}
+          <div className="space-y-4 p-4 rounded-2xl bg-accent/20 border border-border/60">
             <h4 className="font-bold text-xs text-foreground flex items-center gap-1.5">
               <Printer className="w-4 h-4 text-muted-foreground" />
-              Imprimante de Ticket par Défaut
+              Imprimante de Ticket
             </h4>
-            
-            <div className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="text-[10px] font-bold text-muted-foreground block mb-1">Sélectionner l'imprimante</label>
+                <label className="text-[10px] font-bold text-muted-foreground block mb-1">Imprimante / sortie</label>
                 <select
-                  value={selectedPrinter}
-                  onChange={(e) => setSelectedPrinter(e.target.value)}
+                  value={ticketPrinter}
+                  onChange={(e) => setTicketPrinter(e.target.value)}
                   className="w-full px-3 py-2 bg-accent/30 border border-border rounded-xl text-xs font-semibold focus:outline-none text-foreground"
                 >
-                  {printers.length === 0 && (
-                    <option value="">Aucune imprimante détectée</option>
-                  )}
+                  {printers.length === 0 && <option value="">Aucune imprimante détectée</option>}
                   {printers.map((p, i) => (
                     <option key={i} value={p.name}>
-                      {p.name} ({p.connected ? 'Connecté' : 'Déconnecté'})
+                      {p.name} {p.name !== PDF_PRINTER_OPTION ? `(${p.connected ? 'Connecté' : 'Déconnecté'})` : ''}
                     </option>
                   ))}
                 </select>
               </div>
-
               <div>
-                <label className="text-[10px] font-bold text-muted-foreground block mb-1">Largeur du Papier</label>
+                <label className="text-[10px] font-bold text-muted-foreground block mb-1">Format ticket (largeur)</label>
                 <select
-                  value={printerWidth}
-                  onChange={(e) => setPrinterWidth(e.target.value)}
-                  className="w-full px-3 py-2 bg-accent/30 border border-border rounded-xl text-xs font-semibold focus:outline-none text-foreground"
+                  value={ticketWidth}
+                  onChange={(e) => setTicketWidth(e.target.value)}
+                  disabled={ticketPrinter === PDF_PRINTER_OPTION || ticketPrinter.toLowerCase().includes('pdf')}
+                  className="w-full px-3 py-2 bg-accent/30 border border-border rounded-xl text-xs font-semibold focus:outline-none text-foreground disabled:opacity-50"
                 >
-                  <option value="80">Standard 80mm (Recommandé)</option>
-                  <option value="58">Compact 58mm</option>
+                  {TICKET_WIDTH_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
                 </select>
               </div>
             </div>
+            <p className="text-[10px] text-muted-foreground font-semibold">
+              Tickets de caisse et réimpressions depuis l&apos;historique. « {PDF_PRINTER_OPTION} » enregistre le PDF dans Téléchargements.
+            </p>
           </div>
 
-          {/* Scanner Configuration */}
-          <div className="space-y-4">
+          {/* 2. Imprimante de rapport */}
+          <div className="space-y-4 p-4 rounded-2xl bg-accent/20 border border-border/60">
             <h4 className="font-bold text-xs text-foreground flex items-center gap-1.5">
-              <Barcode className="w-4 h-4 text-muted-foreground" />
-              Scanner de Code-barres par Défaut
+              <Printer className="w-4 h-4 text-muted-foreground" />
+              Imprimante de Rapport
             </h4>
-
-            <div className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="text-[10px] font-bold text-muted-foreground block mb-1">Sélectionner le Scanner actif</label>
+                <label className="text-[10px] font-bold text-muted-foreground block mb-1">Imprimante / sortie</label>
                 <select
-                  value={selectedScanner}
-                  onChange={(e) => setSelectedScanner(e.target.value)}
+                  value={reportPrinter}
+                  onChange={(e) => setReportPrinter(e.target.value)}
                   className="w-full px-3 py-2 bg-accent/30 border border-border rounded-xl text-xs font-semibold focus:outline-none text-foreground"
                 >
-                  {scanners.length === 0 && (
-                    <option value="">Aucun lecteur de code-barres détecté</option>
-                  )}
-                  {scanners.map((s, i) => (
-                    <option key={i} value={s.name}>
-                      {s.name} ({s.connected ? 'Connecté' : 'Déconnecté'})
+                  {printers.length === 0 && <option value="">Aucune imprimante détectée</option>}
+                  {printers.map((p, i) => (
+                    <option key={i} value={p.name}>
+                      {p.name} {p.name !== PDF_PRINTER_OPTION ? `(${p.connected ? 'Connecté' : 'Déconnecté'})` : ''}
                     </option>
                   ))}
                 </select>
               </div>
-
-              <div className="p-3 bg-accent/30 rounded-xl border border-border/50 text-[10px] font-semibold text-muted-foreground flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-primary dark:text-amber-400 shrink-0" />
-                <span>Le scanner sélectionné captera automatiquement les entrées en caisse pour l'ajout au panier.</span>
+              <div>
+                <label className="text-[10px] font-bold text-muted-foreground block mb-1">Format document (grand format)</label>
+                <select
+                  value={reportFormat}
+                  onChange={(e) => setReportFormat(e.target.value)}
+                  className="w-full px-3 py-2 bg-accent/30 border border-border rounded-xl text-xs font-semibold focus:outline-none text-foreground"
+                >
+                  {REPORT_FORMAT_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
               </div>
+            </div>
+            <p className="text-[10px] text-muted-foreground font-semibold">
+              Historique des ventes (export PDF), statistiques et rapports. Le format choisi s&apos;applique au PDF ou à l&apos;impression physique.
+            </p>
+          </div>
+
+          {/* 3. Scanner */}
+          <div className="space-y-4 p-4 rounded-2xl bg-accent/20 border border-border/60">
+            <h4 className="font-bold text-xs text-foreground flex items-center gap-1.5">
+              <Barcode className="w-4 h-4 text-muted-foreground" />
+              Scanner de Code-barres
+            </h4>
+            <div>
+              <label className="text-[10px] font-bold text-muted-foreground block mb-1">Scanner actif</label>
+              <select
+                value={selectedScanner}
+                onChange={(e) => setSelectedScanner(e.target.value)}
+                className="w-full px-3 py-2 bg-accent/30 border border-border rounded-xl text-xs font-semibold focus:outline-none text-foreground"
+              >
+                {scanners.length === 0 && (
+                  <option value="">Aucun lecteur de code-barres détecté</option>
+                )}
+                {scanners.map((s, i) => (
+                  <option key={i} value={s.name}>
+                    {s.name} ({s.connected ? 'Connecté' : 'Déconnecté'})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="p-3 bg-accent/30 rounded-xl border border-border/50 text-[10px] font-semibold text-muted-foreground flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-primary dark:text-blue-600 shrink-0" />
+              <span>Utilisé en caisse pour le scan USB et la caméra du terminal.</span>
             </div>
           </div>
         </div>
@@ -338,7 +395,7 @@ export default function Settings() {
       {/* Sync endpoints */}
       <div className="bg-card border border-border rounded-3xl p-6 shadow-sm space-y-4">
         <div className="flex items-center gap-3">
-          <Database className="w-5 h-5 text-primary dark:text-amber-400" />
+          <Database className="w-5 h-5 text-primary dark:text-blue-600" />
           <h3 className="font-bold text-sm text-foreground">Serveur de Synchronisation</h3>
         </div>
 
@@ -357,7 +414,7 @@ export default function Settings() {
       <div className="flex justify-end pt-4">
         <button
           onClick={handleSaveSettings}
-          className="flex items-center gap-1.5 px-6 py-3 rounded-2xl bg-primary dark:bg-amber-500 text-primary-foreground dark:text-amber-950 font-bold text-xs shadow-md hover:bg-opacity-95 transition-all cursor-pointer"
+          className="flex items-center gap-1.5 px-6 py-3 rounded-2xl bg-primary dark:bg-blue-600 dark:text-white text-primary-foreground dark:text-amber-950 font-bold text-xs shadow-md hover:bg-opacity-95 transition-all cursor-pointer"
         >
           <Save className="w-4 h-4" />
           <span>Enregistrer les paramètres</span>

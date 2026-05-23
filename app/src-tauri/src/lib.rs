@@ -347,6 +347,126 @@ fn print_receipt(printer_name: String, content: String) -> Result<String, String
     }
 }
 
+fn user_downloads_dir() -> Result<std::path::PathBuf, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let userprofile = std::env::var("USERPROFILE")
+            .map_err(|_| "Variable USERPROFILE introuvable.".to_string())?;
+        return Ok(std::path::PathBuf::from(userprofile).join("Downloads"));
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let home = std::env::var("HOME")
+            .map_err(|_| "Dossier personnel (HOME) introuvable.".to_string())?;
+        return Ok(std::path::PathBuf::from(home).join("Downloads"));
+    }
+}
+
+fn sanitize_pdf_filename(filename: &str) -> String {
+    let mut name = filename.trim().to_string();
+    if name.is_empty() {
+        name = "aztea_document.pdf".to_string();
+    }
+    if !name.to_lowercase().ends_with(".pdf") {
+        name.push_str(".pdf");
+    }
+    name.chars()
+        .map(|c| {
+            if "<>:\"/\\|?*".contains(c) {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect()
+}
+
+/// Enregistre un PDF dans le dossier Téléchargements de l'utilisateur (mode « Enregistrer au format PDF »).
+#[tauri::command]
+fn save_pdf_to_downloads(pdf_base64: String, filename: String) -> Result<String, String> {
+    use base64::Engine;
+
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(pdf_base64.trim())
+        .map_err(|e| format!("PDF invalide (base64): {}", e))?;
+
+    let downloads = user_downloads_dir()?;
+    std::fs::create_dir_all(&downloads)
+        .map_err(|e| format!("Impossible d'accéder à Téléchargements: {}", e))?;
+
+    let safe_name = sanitize_pdf_filename(&filename);
+    let path = downloads.join(&safe_name);
+    std::fs::write(&path, &bytes)
+        .map_err(|e| format!("Impossible d'écrire le fichier PDF: {}", e))?;
+
+    Ok(path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn print_pdf_base64(printer_name: String, pdf_base64: String, filename: String) -> Result<String, String> {
+    use base64::Engine;
+
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(pdf_base64.trim())
+        .map_err(|e| format!("PDF invalide (base64): {}", e))?;
+
+    let safe_name = if filename.trim().is_empty() {
+        "aztea_document.pdf".to_string()
+    } else {
+        filename
+    };
+    let temp_path = std::env::temp_dir().join(safe_name);
+    std::fs::write(&temp_path, &bytes)
+        .map_err(|e| format!("Impossible d'écrire le PDF temporaire: {}", e))?;
+
+    let result = if cfg!(target_os = "windows") {
+        if printer_name.is_empty() {
+            Command::new("powershell")
+                .args(&[
+                    "-Command",
+                    &format!(
+                        "Start-Process -FilePath '{}' -Verb Print",
+                        temp_path.display()
+                    ),
+                ])
+                .output()
+        } else {
+            Command::new("powershell")
+                .args(&[
+                    "-Command",
+                    &format!(
+                        "Start-Process -FilePath '{}' -ArgumentList '/t','{}' -Verb Print",
+                        temp_path.display(),
+                        printer_name.replace('\'', "''")
+                    ),
+                ])
+                .output()
+        }
+    } else if printer_name.is_empty() {
+        Command::new("lp").arg(&temp_path).output()
+    } else {
+        Command::new("lp")
+            .arg("-d")
+            .arg(&printer_name)
+            .arg(&temp_path)
+            .output()
+    };
+
+    let _ = std::fs::remove_file(&temp_path);
+
+    match result {
+        Ok(output) => {
+            if output.status.success() {
+                Ok("Document PDF envoyé à l'imprimante".to_string())
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                Err(format!("Impression PDF échouée: {}", stderr))
+            }
+        }
+        Err(e) => Err(format!("Erreur impression PDF: {}", e)),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -358,7 +478,9 @@ pub fn run() {
             get_hardware_devices,
             get_device_fingerprint,
             get_device_info,
-            print_receipt
+            print_receipt,
+            print_pdf_base64,
+            save_pdf_to_downloads
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

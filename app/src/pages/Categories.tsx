@@ -140,7 +140,7 @@ export default function Categories() {
           className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs shadow-md transition-all ${
             isCashier
               ? 'bg-muted text-muted-foreground cursor-not-allowed opacity-60'
-              : 'bg-primary text-primary-foreground hover:bg-opacity-95 cursor-pointer'
+              : 'bg-primary dark:bg-blue-600 text-primary-foreground hover:bg-opacity-95 cursor-pointer'
           }`}
         >
           <Plus className="w-4 h-4" />
@@ -183,7 +183,7 @@ export default function Categories() {
                   filteredCategories.map((cat) => (
                     <tr key={cat.id} className="border-b border-border/50 hover:bg-accent/20 transition-colors font-medium">
                       <td className="py-4 px-6 font-bold text-foreground flex items-center gap-2">
-                        <Tag className="w-4 h-4 text-primary shrink-0" />
+                        <Tag className="w-4 h-4 text-primary dark:text-blue-600 shrink-0" />
                         <span>{cat.name}</span>
                       </td>
                       <td className="py-4 px-4 text-muted-foreground font-semibold">
@@ -270,7 +270,7 @@ export default function Categories() {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow-sm hover:bg-opacity-95 cursor-pointer"
+                  className="flex-1 py-2.5 rounded-xl bg-primary dark:bg-blue-600 text-primary-foreground text-xs font-bold shadow-sm hover:bg-opacity-95 cursor-pointer"
                 >
                   Ajouter Catégorie
                 </button>
@@ -319,7 +319,7 @@ export default function Categories() {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow-sm hover:bg-opacity-95 cursor-pointer"
+                  className="flex-1 py-2.5 rounded-xl bg-primary dark:bg-blue-600 text-primary-foreground text-xs font-bold shadow-sm hover:bg-opacity-95 cursor-pointer"
                 >
                   Enregistrer
                 </button>

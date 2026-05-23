@@ -139,7 +139,7 @@ export default function Users() {
 
         <button
           onClick={() => setIsModalOpen(true)}
-          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs shadow-md transition-all bg-primary text-primary-foreground hover:bg-opacity-95 cursor-pointer"
+          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs shadow-md transition-all bg-primary dark:bg-blue-600 text-primary-foreground hover:bg-opacity-95 cursor-pointer"
         >
           <Plus className="w-4 h-4" />
           <span>Nouvel Utilisateur</span>
@@ -172,14 +172,14 @@ export default function Users() {
                 filteredUsers.map(user => (
                   <tr key={user.id} className="border-b border-border/50 hover:bg-accent/20 transition-colors font-medium">
                     <td className="py-4 px-6 font-bold text-foreground flex items-center gap-2">
-                      <User className="w-4 h-4 text-primary shrink-0" />
+                      <User className="w-4 h-4 text-primary dark:text-blue-400 shrink-0" />
                       <span>{user.name}</span>
                     </td>
                     <td className="py-4 px-4 text-muted-foreground font-semibold">{user.email}</td>
                     <td className="py-4 px-4 text-sm">
                       <div className="flex flex-wrap gap-1.5">
                         {user.roles?.map(role => (
-                          <span key={role} className="bg-primary/10 text-primary px-2.5 py-1 rounded-md text-[10px] uppercase font-extrabold tracking-wider">
+                          <span key={role} className="bg-primary/10 text-primary dark:text-blue-400 px-2.5 py-1 rounded-md text-[10px] uppercase font-extrabold tracking-wider">
                             {role}
                           </span>
                         ))}
@@ -307,7 +307,7 @@ export default function Users() {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow-sm hover:bg-opacity-95 cursor-pointer"
+                  className="flex-1 py-2.5 rounded-xl bg-primary dark:bg-blue-600 text-primary-foreground text-xs font-bold shadow-sm hover:bg-opacity-95 cursor-pointer"
                 >
                   Créer
                 </button>

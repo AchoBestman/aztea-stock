@@ -13,8 +13,11 @@ export default function Dashboard() {
   const { isOnline, lastSyncAt } = useSyncStore();
   const { user } = useAuthStore();
 
-  const [selectedPeriod, setSelectedPeriod] = useState<'day' | 'week' | 'month' | 'specific-day'>('day');
-  const [specificDay, setSpecificDay] = useState(() => new Date().toISOString().split('T')[0]);
+  const [selectedPeriod, setSelectedPeriod] = useState<'day' | 'week' | 'month' | 'interval'>('day');
+  const [dateRange, setDateRange] = useState({ 
+    start: new Date().toISOString().split('T')[0], 
+    end: new Date().toISOString().split('T')[0] 
+  });
   const [sales, setSales] = useState<Sale[]>([]);
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,9 +61,10 @@ export default function Dashboard() {
       } else if (selectedPeriod === 'month') {
         return soldDate >= startOfMonth;
       } else {
-        const targetStr = new Date(specificDay).toISOString().split('T')[0];
+        const startStr = dateRange.start;
+        const endStr = dateRange.end;
         const soldStr = s.sold_at.split('T')[0];
-        return soldStr === targetStr;
+        return soldStr >= startStr && soldStr <= endStr;
       }
     });
   };
@@ -118,34 +122,40 @@ export default function Dashboard() {
         {/* Quick Period Selector */}
         <div className="flex flex-wrap items-center gap-3 self-start">
           <div className="flex bg-card border border-border p-1 rounded-xl shadow-sm">
-            {(['day', 'week', 'month', 'specific-day'] as const).map((period) => (
+            {(['day', 'week', 'month', 'interval'] as const).map((period) => (
               <button
                 key={period}
                 onClick={() => setSelectedPeriod(period)}
                 className={`px-4 py-2 rounded-lg text-xs font-bold transition-all capitalize cursor-pointer ${
                   selectedPeriod === period
-                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    ? 'bg-primary dark:bg-blue-600 text-primary-foreground shadow-sm'
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                {period === 'day' ? 'Journée' : period === 'week' ? 'Semaine' : period === 'month' ? 'Mois' : 'Choisir Jour'}
+                {period === 'day' ? 'Journée' : period === 'week' ? 'Semaine' : period === 'month' ? 'Mois' : 'Intervalle'}
               </button>
             ))}
           </div>
 
-          {selectedPeriod === 'specific-day' && (
-            <input
-              type="date"
-              value={specificDay}
-              onChange={(e) => setSpecificDay(e.target.value)}
-              min={(() => {
-                const d = new Date();
-                d.setDate(d.getDate() - 365);
-                return d.toISOString().split('T')[0];
-              })()}
-              max={new Date().toISOString().split('T')[0]}
-              className="px-3.5 py-2 rounded-xl border border-border bg-card text-xs font-bold text-foreground focus:outline-none"
-            />
+          {selectedPeriod === 'interval' && (
+            <div className="flex items-center gap-2 bg-card p-1 rounded-xl shadow-sm border border-border">
+              <input
+                type="date"
+                value={dateRange.start}
+                onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+                max={dateRange.end}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-transparent text-foreground focus:outline-none"
+              />
+              <span className="text-muted-foreground text-xs font-bold">-</span>
+              <input
+                type="date"
+                value={dateRange.end}
+                onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+                min={dateRange.start}
+                max={new Date().toISOString().split('T')[0]}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-transparent text-foreground focus:outline-none"
+              />
+            </div>
           )}
         </div>
       </div>
@@ -163,7 +173,7 @@ export default function Dashboard() {
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold text-muted-foreground">Chiffre d'Affaires</span>
                 <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
-                  <TrendingUp className="w-5 h-5" />
+                  <TrendingUp className="w-5 h-5 dark:text-blue-600" />
                 </div>
               </div>
               <div className="mt-4">
@@ -180,7 +190,7 @@ export default function Dashboard() {
             <div className="bg-card border border-border rounded-2xl p-6 card-hover shadow-sm flex flex-col justify-between">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold text-muted-foreground">Transactions</span>
-                <div className="w-10 h-10 rounded-xl bg-violet-500/10 flex items-center justify-center text-violet-500">
+                <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500">
                   <ShoppingCart className="w-5 h-5" />
                 </div>
               </div>
@@ -260,14 +270,14 @@ export default function Dashboard() {
                 <svg className="absolute inset-0 w-full h-[85%] mt-4 overflow-visible" preserveAspectRatio="none">
                   <defs>
                     <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#140066" stopOpacity="0.2" />
-                      <stop offset="100%" stopColor="#140066" stopOpacity="0.0" />
+                      <stop offset="0%" stopColor="currentColor" stopOpacity="0.2" className="text-blue-600 dark:text-blue-400" />
+                      <stop offset="100%" stopColor="currentColor" stopOpacity="0.0" className="text-blue-600 dark:text-blue-400" />
                     </linearGradient>
                   </defs>
                   <path
                     d="M 20 180 Q 80 120 140 140 T 260 60 T 380 90 T 500 40 T 620 20"
                     fill="none"
-                    stroke="#140066"
+                    className="stroke-blue-600 dark:stroke-blue-400"
                     strokeWidth="3.5"
                     strokeLinecap="round"
                   />
@@ -275,9 +285,9 @@ export default function Dashboard() {
                     d="M 20 180 Q 80 120 140 140 T 260 60 T 380 90 T 500 40 T 620 20 L 620 200 L 20 200 Z"
                     fill="url(#chartGradient)"
                   />
-                  <circle cx="260" cy="60" r="5" fill="#140066" stroke="#ffffff" strokeWidth="2" />
-                  <circle cx="500" cy="40" r="5" fill="#140066" stroke="#ffffff" strokeWidth="2" />
-                  <circle cx="620" cy="20" r="5" fill="#140066" stroke="#ffffff" strokeWidth="2" />
+                  <circle cx="260" cy="60" r="5" className="fill-blue-600 dark:fill-blue-400" style={{ stroke: 'var(--color-card)' }} strokeWidth="2" />
+                  <circle cx="500" cy="40" r="5" className="fill-blue-600 dark:fill-blue-400" style={{ stroke: 'var(--color-card)' }} strokeWidth="2" />
+                  <circle cx="620" cy="20" r="5" className="fill-blue-600 dark:fill-blue-400" style={{ stroke: 'var(--color-card)' }} strokeWidth="2" />
                 </svg>
 
                 {/* X Axis Labels */}
@@ -306,7 +316,7 @@ export default function Dashboard() {
                     topProducts.map((prod, index) => (
                       <div key={index} className="flex items-center justify-between p-2 rounded-xl hover:bg-accent/40 transition-colors">
                         <div className="flex items-center gap-3">
-                          <span className="w-6 h-6 rounded-lg bg-primary/10 text-primary flex items-center justify-center font-bold text-xs">
+                          <span className="w-6 h-6 rounded-lg bg-primary/10 text-primary dark:bg-blue-600 flex items-center justify-center font-bold text-xs">
                             {index + 1}
                           </span>
                           <div className="max-w-[150px]">

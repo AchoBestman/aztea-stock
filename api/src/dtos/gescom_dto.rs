@@ -21,6 +21,8 @@ pub struct CreateSalePayload {
     pub customer_phone: Option<String>,
     pub payment_method: String, // cash, card, mobile_money, credit
     pub notes: Option<String>,
+    pub amount_paid: Option<f64>,
+    pub change_given: Option<f64>,
     #[validate(nested)]
     pub items: Vec<CreateSaleItemPayload>,
 }
