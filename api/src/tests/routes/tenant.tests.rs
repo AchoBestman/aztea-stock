@@ -218,6 +218,7 @@ async fn test_create_tenant_by_system_tenant_user_with_permission() {
         "business_type": "pharmacy",
         "email": "new@pharmacy.com",
         "country": "CG",
+        "city": "Brazzaville",
         "timezone": "Africa/Brazzaville"
     });
 
@@ -301,7 +302,6 @@ async fn test_update_tenant_own_fields_success_system_fields_fail() {
     // 1. Updating own non-system fields should succeed
     let payload_own = json!({
         "phone": "123456789",
-        "timezone": "Africa/Brazzaville",
         "two_factor_enabled": true
     });
 
@@ -322,7 +322,6 @@ async fn test_update_tenant_own_fields_success_system_fields_fail() {
     let bytes = response_own.into_body().collect().await.unwrap().to_bytes();
     let body: Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body["phone"], "123456789");
-    assert_eq!(body["timezone"], "Africa/Brazzaville");
     assert_eq!(body["two_factor_enabled"], true);
 
     // 2. Attempting to update system fields like name should fail
@@ -556,7 +555,7 @@ async fn test_list_tenants_advanced_filters() {
             assert_eq!(res.status(), StatusCode::OK);
             let bytes = res.into_body().collect().await.unwrap().to_bytes();
             let parsed: Value = serde_json::from_slice(&bytes).unwrap();
-            parsed.as_array().unwrap().clone()
+            parsed["data"].as_array().unwrap().clone()
         }
     };
 

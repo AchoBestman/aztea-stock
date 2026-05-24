@@ -9,10 +9,25 @@ use crate::{
 pub struct TenantService;
 
 impl TenantService {
+    fn validate_geo_fields(country: &str, city: &str, timezone: &str) -> Result<(), ApiError> {
+        if country.trim().is_empty() {
+            return Err(ApiError::BadRequest("Le pays est obligatoire.".to_string()));
+        }
+        if city.trim().is_empty() {
+            return Err(ApiError::BadRequest("La ville est obligatoire.".to_string()));
+        }
+        if timezone.trim().is_empty() {
+            return Err(ApiError::BadRequest("Le fuseau horaire est obligatoire.".to_string()));
+        }
+        Ok(())
+    }
+
     pub async fn create_tenant(
         db: &DatabaseConnection,
         payload: CreateTenantPayload,
     ) -> Result<TenantResponse, ApiError> {
+        Self::validate_geo_fields(&payload.country, &payload.city, &payload.timezone)?;
+
         let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().fixed_offset();
         let tenant = crate::models::tenant::Model {
@@ -22,8 +37,10 @@ impl TenantService {
             email: payload.email,
             phone: payload.phone,
             address: payload.address,
-            country: payload.country,
-            timezone: payload.timezone,
+            city: Some(payload.city),
+            country: Some(payload.country),
+            country_code: payload.country_code,
+            timezone: Some(payload.timezone),
             logo_url: payload.logo_url,
             is_active: Some(true),
             is_system: false,
@@ -46,7 +63,11 @@ impl TenantService {
         is_active: Option<String>,
         created_after: Option<String>,
         created_before: Option<String>,
-    ) -> Result<Vec<TenantResponse>, ApiError> {
+        page: u64,
+        per_page: u64,
+        order_by: Option<String>,
+        order_type: Option<String>,
+    ) -> Result<crate::dtos::tenant_dto::PaginatedTenantResponse, ApiError> {
         let is_active_parsed = if let Some(ref status_str) = is_active {
             Some(Self::parse_bool_param(status_str)?)
         } else {
@@ -65,16 +86,39 @@ impl TenantService {
             None
         };
 
-        let models = TenantRepository::find_all_filtered(
+        let order_col = order_by.as_deref().unwrap_or("created_at");
+        let order_desc = order_type.as_deref().unwrap_or("desc").eq_ignore_ascii_case("desc");
+
+        let (models, total) = TenantRepository::find_paginated(
             db,
             business_type.as_deref(),
             search.as_deref(),
             is_active_parsed,
             after_parsed,
             before_parsed,
-        ).await?;
-        let responses = models.into_iter().map(Self::map_to_response).collect();
-        Ok(responses)
+            page.max(1),
+            per_page.clamp(1, 100),
+            order_col,
+            order_desc,
+        )
+        .await?;
+
+        let per_page = per_page.clamp(1, 100);
+        let total_pages = if total == 0 {
+            0
+        } else {
+            (total + per_page - 1) / per_page
+        };
+
+        let data = models.into_iter().map(Self::map_to_response).collect();
+
+        Ok(crate::dtos::tenant_dto::PaginatedTenantResponse {
+            data,
+            total,
+            page: page.max(1),
+            per_page,
+            total_pages,
+        })
     }
 
     pub async fn get_tenant(
@@ -107,6 +151,8 @@ impl TenantService {
         // 2. Guard: Identify which fields the caller wants to modify
         let system_only_fields_modified = payload.business_type.is_some()
             || payload.country.is_some()
+            || payload.city.is_some()
+            || payload.timezone.is_some()
             || payload.is_active.is_some()
             || payload.name.is_some()
             || payload.sender_email.is_some()
@@ -146,11 +192,24 @@ impl TenantService {
         if let Some(address) = payload.address {
             tenant.address = address;
         }
-        if let Some(country) = payload.country {
-            tenant.country = country;
+
+        if let Some(country) = &payload.country {
+            tenant.country = Some(country.clone());
         }
-        if let Some(timezone) = payload.timezone {
-            tenant.timezone = timezone;
+        if let Some(country_code) = &payload.country_code {
+            tenant.country_code = Some(country_code.clone());
+        }
+        if let Some(city) = &payload.city {
+            tenant.city = Some(city.clone());
+        }
+        if let Some(timezone) = &payload.timezone {
+            tenant.timezone = Some(timezone.clone());
+        }
+        if payload.country.is_some() || payload.country_code.is_some() || payload.city.is_some() || payload.timezone.is_some() {
+            let country = tenant.country.as_deref().unwrap_or("");
+            let city = tenant.city.as_deref().unwrap_or("");
+            let timezone = tenant.timezone.as_deref().unwrap_or("");
+            Self::validate_geo_fields(country, city, timezone)?;
         }
         if let Some(logo_url) = payload.logo_url {
             tenant.logo_url = logo_url;
@@ -230,7 +289,9 @@ impl TenantService {
             email: m.email,
             phone: m.phone,
             address: m.address,
+            city: m.city,
             country: m.country,
+            country_code: m.country_code,
             timezone: m.timezone,
             logo_url: m.logo_url,
             is_active: m.is_active,

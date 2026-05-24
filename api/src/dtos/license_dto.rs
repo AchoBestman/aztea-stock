@@ -60,6 +60,13 @@ pub struct FullLicenseResponse {
 }
 
 #[derive(Serialize, ToSchema, Clone, Debug)]
+pub struct RevealLicenseResponse {
+    pub id: String,
+    pub tenant_id: String,
+    pub license_key_plain: String,
+}
+
+#[derive(Serialize, ToSchema, Clone, Debug)]
 pub struct LicenseStatusResponse {
     pub has_active_license: bool,
     pub status: String,

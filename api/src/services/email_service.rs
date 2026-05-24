@@ -413,6 +413,29 @@ pub async fn send_password_reset_email(
     enqueue_email(state, tenant_id, to, &format!("{} — Initialisation de votre compte", name), &html).await
 }
 
+/// Sends the plain license key to the tenant's email (admin action)
+pub async fn send_license_key_to_tenant(
+    state: &AppState,
+    tenant_id: &str,
+    to: &str,
+    license_key: &str,
+) -> Result<bool, anyhow::Error> {
+    let name = tenant_name(state, tenant_id).await;
+    let body = format!(
+        r#"<h2 style="margin:0 0 8px;font-size:22px;color:#0f172a;">Votre clé de licence</h2>
+<p style="margin:0 0 16px;font-size:14px;color:#64748b;">Voici la clé de licence associée à votre compte <strong>{name}</strong>.</p>
+<div style="background:#f1f5f9;border-radius:10px;padding:32px;text-align:center;margin-bottom:28px;">
+  <p style="margin:0 0 12px;font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;">Clé de licence</p>
+  <div style="font-size:26px;font-weight:800;letter-spacing:6px;color:#140066;font-family:monospace;">{license_key}</div>
+</div>
+<p style="margin:0 0 16px;font-size:14px;color:#64748b;">
+  Conservez cette clé en lieu sûr. Elle est nécessaire pour activer votre application sur vos appareils.
+</p>"#
+    );
+    let html = base_template(&name, "Votre clé de licence", "Votre clé de licence Aztea Stock", &body);
+    enqueue_email(state, tenant_id, to, &format!("{} — Votre clé de licence", name), &html).await
+}
+
 /// License expiry renewal alert email
 pub async fn send_license_renewal_alert(
     state: &AppState,

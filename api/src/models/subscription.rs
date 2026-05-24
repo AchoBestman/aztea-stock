@@ -1,7 +1,6 @@
 use sea_orm::entity::prelude::*;
-use rust_decimal::Decimal;
 
-#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "subscriptions")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
@@ -9,7 +8,7 @@ pub struct Model {
     pub tenant_id: String,
     pub plan: String,
     pub status: String,
-    pub price_monthly: Decimal,
+    pub price_monthly: f64,
     pub currency: Option<String>,
     pub max_devices: i32,
     pub started_at: DateTimeWithTimeZone,

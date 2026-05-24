@@ -1,13 +1,12 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use rust_decimal::Decimal;
 
 #[derive(Deserialize, ToSchema, Clone, Debug)]
 pub struct CreateSubscriptionPayload {
     pub tenant_id: String,
     pub plan: String, // starter, pro, enterprise
     pub status: String, // trial, active, suspended, cancelled
-    pub price_monthly: Decimal,
+    pub price_monthly: f64,
     pub currency: Option<String>,
     pub expires_at: String, // ISO date string
     pub trial_ends_at: Option<String>,
@@ -25,7 +24,7 @@ pub struct SubscriptionResponse {
     #[schema(example = "active")]
     pub status: String,
     #[schema(example = "49.99")]
-    pub price_monthly: Decimal,
+    pub price_monthly: f64,
     #[schema(example = "XAF")]
     pub currency: String,
     #[schema(example = "2026-05-20T10:00:00Z")]
@@ -40,6 +39,12 @@ pub struct SubscriptionResponse {
     pub notes: Option<String>,
     #[schema(example = "2026-05-20T10:00:00Z")]
     pub created_at: String,
+}
+
+#[derive(Deserialize, ToSchema, Clone, Debug)]
+pub struct UpdateSubscriptionStatusPayload {
+    /// active | suspended | cancelled | trial
+    pub status: String,
 }
 
 #[derive(Serialize, ToSchema, Clone, Debug)]

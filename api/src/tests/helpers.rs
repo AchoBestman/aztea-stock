@@ -15,6 +15,7 @@ pub async fn setup_schema(db: &DatabaseConnection) {
             email VARCHAR(255) UNIQUE NOT NULL,
             phone VARCHAR(50),
             address TEXT,
+            city VARCHAR(100),
             country VARCHAR(100) DEFAULT 'CG',
             timezone VARCHAR(100) DEFAULT 'Africa/Brazzaville',
             logo_url TEXT,

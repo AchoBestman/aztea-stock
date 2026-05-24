@@ -9,12 +9,21 @@ use crate::{
     services::user_service::UserService,
     utils::auth::require_permission,
 };
-use axum::{Extension, Json, extract::State};
+use axum::{Extension, Json, extract::{Query, State}};
 use std::sync::Arc;
+use serde::Deserialize;
+use utoipa::IntoParams;
+
+#[derive(Deserialize, IntoParams)]
+pub struct ListUsersQuery {
+    /// Filtrer par tenant (réservé au tenant système)
+    pub tenant_id: Option<String>,
+}
 
 #[utoipa::path(
     get,
     path = "/api/v1/admin/users",
+    params(ListUsersQuery),
     responses(
         (status = 200, description = "Liste des utilisateurs récupérée avec succès.", body = Vec<UserResponse>),
         (status = 401, description = "Authentification requise ou token JWT invalide."),
@@ -28,6 +37,7 @@ use std::sync::Arc;
 pub async fn list_users(
     Extension(claims): Extension<Claims>,
     State(state): State<Arc<AppState>>,
+    Query(query): Query<ListUsersQuery>,
 ) -> Result<Json<Vec<UserResponse>>, ApiError> {
     let db = state
         .db
@@ -42,7 +52,7 @@ pub async fn list_users(
         require_permission(db, &claims.sub, "can_read_user").await?;
     }
 
-    let users = UserService::list_users(db, &claims.tenant_id).await?;
+    let users = UserService::list_users(db, &claims.sub, &claims.tenant_id, query.tenant_id).await?;
     Ok(Json(users))
 }
 

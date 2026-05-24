@@ -2,7 +2,7 @@ use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, QueryFilter, Co
 use crate::{
     errors::ApiError,
     models::subscription,
-    dtos::subscription_dto::{CreateSubscriptionPayload, SubscriptionResponse},
+    dtos::subscription_dto::{CreateSubscriptionPayload, SubscriptionResponse, UpdateSubscriptionStatusPayload},
 };
 
 pub struct SubscriptionService;
@@ -139,5 +139,50 @@ impl SubscriptionService {
             .ok_or_else(|| ApiError::NotFound("Abonnement introuvable".to_string()))?;
         
         Ok(Self::map_to_response(model))
+    }
+
+    pub async fn delete_subscription(
+        db: &DatabaseConnection,
+        subscription_id: &str,
+        caller_tenant_id: &str,
+    ) -> Result<(), ApiError> {
+        use sea_orm::EntityTrait;
+        let caller = crate::models::tenant::Entity::find_by_id(caller_tenant_id)
+            .one(db).await?
+            .ok_or_else(|| ApiError::Unauthorized("Tenant introuvable".to_string()))?;
+        if !caller.is_system {
+            return Err(ApiError::Forbidden("Seul le tenant système peut supprimer un abonnement.".to_string()));
+        }
+        subscription::Entity::find_by_id(subscription_id)
+            .one(db).await?
+            .ok_or_else(|| ApiError::NotFound("Abonnement introuvable".to_string()))?;
+        subscription::Entity::delete_by_id(subscription_id).exec(db).await?;
+        Ok(())
+    }
+
+    pub async fn update_subscription_status(
+        db: &DatabaseConnection,
+        subscription_id: &str,
+        payload: UpdateSubscriptionStatusPayload,
+        caller_tenant_id: &str,
+    ) -> Result<SubscriptionResponse, ApiError> {
+        use sea_orm::EntityTrait;
+        let caller = crate::models::tenant::Entity::find_by_id(caller_tenant_id)
+            .one(db).await?
+            .ok_or_else(|| ApiError::Unauthorized("Tenant introuvable".to_string()))?;
+        if !caller.is_system {
+            return Err(ApiError::Forbidden("Seul le tenant système peut modifier le statut d'un abonnement.".to_string()));
+        }
+        let sub = subscription::Entity::find_by_id(subscription_id)
+            .one(db).await?
+            .ok_or_else(|| ApiError::NotFound("Abonnement introuvable".to_string()))?;
+
+        let mut active: subscription::ActiveModel = sub.into();
+        active.status = Set(payload.status.clone());
+        if payload.status == "cancelled" {
+            active.cancelled_at = Set(Some(chrono::Utc::now().fixed_offset()));
+        }
+        let updated = active.update(db).await?;
+        Ok(Self::map_to_response(updated))
     }
 }

@@ -24,7 +24,9 @@ impl TenantRepository {
             email: Set(model.email),
             phone: Set(model.phone),
             address: Set(model.address),
+            city: Set(model.city),
             country: Set(model.country),
+            country_code: Set(model.country_code),
             timezone: Set(model.timezone),
             logo_url: Set(model.logo_url),
             is_active: Set(model.is_active),
@@ -74,11 +76,83 @@ impl TenantRepository {
                     .add(tenant::Column::Email.like(&search_pattern))
                     .add(tenant::Column::Phone.like(&search_pattern))
                     .add(tenant::Column::Country.like(&search_pattern))
+                    .add(tenant::Column::City.like(&search_pattern))
                     .add(tenant::Column::Address.like(&search_pattern))
             );
         }
 
         query.all(db).await
+    }
+
+    pub async fn find_paginated(
+        db: &DatabaseConnection,
+        business_type: Option<&str>,
+        search: Option<&str>,
+        is_active: Option<bool>,
+        created_after: Option<chrono::DateTime<chrono::FixedOffset>>,
+        created_before: Option<chrono::DateTime<chrono::FixedOffset>>,
+        page: u64,
+        per_page: u64,
+        order_by: &str,
+        order_desc: bool,
+    ) -> Result<(Vec<tenant::Model>, u64), DbErr> {
+        use sea_orm::{ColumnTrait, Condition, PaginatorTrait, QueryFilter, QueryOrder};
+
+        let mut query = tenant::Entity::find();
+
+        if let Some(bt) = business_type {
+            query = query.filter(tenant::Column::BusinessType.eq(bt));
+        }
+        if let Some(status) = is_active {
+            query = query.filter(tenant::Column::IsActive.eq(status));
+        }
+        if let Some(after) = created_after {
+            query = query.filter(tenant::Column::CreatedAt.gte(after));
+        }
+        if let Some(before) = created_before {
+            query = query.filter(tenant::Column::CreatedAt.lte(before));
+        }
+        if let Some(s) = search {
+            let search_pattern = format!("%{}%", s);
+            query = query.filter(
+                Condition::any()
+                    .add(tenant::Column::Name.like(&search_pattern))
+                    .add(tenant::Column::Email.like(&search_pattern))
+                    .add(tenant::Column::Phone.like(&search_pattern))
+                    .add(tenant::Column::Country.like(&search_pattern))
+                    .add(tenant::Column::City.like(&search_pattern))
+                    .add(tenant::Column::Address.like(&search_pattern)),
+            );
+        }
+
+        query = match order_by {
+            "name" => {
+                if order_desc {
+                    query.order_by_desc(tenant::Column::Name)
+                } else {
+                    query.order_by_asc(tenant::Column::Name)
+                }
+            }
+            "email" => {
+                if order_desc {
+                    query.order_by_desc(tenant::Column::Email)
+                } else {
+                    query.order_by_asc(tenant::Column::Email)
+                }
+            }
+            _ => {
+                if order_desc {
+                    query.order_by_desc(tenant::Column::CreatedAt)
+                } else {
+                    query.order_by_asc(tenant::Column::CreatedAt)
+                }
+            }
+        };
+
+        let paginator = query.paginate(db, per_page);
+        let total = paginator.num_items().await?;
+        let page_data = paginator.fetch_page(page.saturating_sub(1)).await?;
+        Ok((page_data, total))
     }
 
     pub async fn update(
@@ -92,7 +166,9 @@ impl TenantRepository {
             email: Set(model.email),
             phone: Set(model.phone),
             address: Set(model.address),
+            city: Set(model.city),
             country: Set(model.country),
+            country_code: Set(model.country_code),
             timezone: Set(model.timezone),
             logo_url: Set(model.logo_url),
             is_active: Set(model.is_active),

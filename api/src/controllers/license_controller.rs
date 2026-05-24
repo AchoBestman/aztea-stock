@@ -1,10 +1,10 @@
-use axum::{Extension, Json, extract::{State, Query}};
+use axum::{Extension, Json, extract::{State, Query, Path}};
 use std::sync::Arc;
 use crate::{
     AppState,
     errors::ApiError,
     middleware::auth::Claims,
-    dtos::license_dto::{ActivateLicensePayload, FullLicenseResponse, GenerateLicensePayload, LicenseResponse, LicenseStatusResponse},
+    dtos::license_dto::{ActivateLicensePayload, FullLicenseResponse, GenerateLicensePayload, LicenseResponse, LicenseStatusResponse, RevealLicenseResponse},
     services::license_service::LicenseService,
     utils::{auth::require_permission, pagination::PaginationParams},
     models::tenant,
@@ -125,4 +125,50 @@ pub async fn activate_license(
 
     let lic = LicenseService::activate_license(db, &claims.tenant_id, payload).await?;
     Ok(Json(lic))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/licenses/{id}/reveal",
+    params(("id" = String, Path, description = "License ID")),
+    responses(
+        (status = 200, description = "Clé révélée.", body = RevealLicenseResponse),
+    ),
+    security(("bearerAuth" = [])),
+    tag = "Admin - Licenses"
+)]
+pub async fn reveal_license_key(
+    Extension(claims): Extension<Claims>,
+    State(state): State<Arc<AppState>>,
+    Path(license_id): Path<String>,
+) -> Result<Json<RevealLicenseResponse>, ApiError> {
+    let db = state.db.as_ref().ok_or_else(|| {
+        ApiError::Internal("Base de données indisponible".to_string())
+    })?;
+    require_permission(db, &claims.sub, "can_manage_licenses").await?;
+    let resp = LicenseService::reveal_license_key(db, &license_id, &claims.tenant_id).await?;
+    Ok(Json(resp))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/licenses/{id}/send-key",
+    params(("id" = String, Path, description = "License ID")),
+    responses(
+        (status = 200, description = "Email envoyé.", body = serde_json::Value),
+    ),
+    security(("bearerAuth" = [])),
+    tag = "Admin - Licenses"
+)]
+pub async fn send_license_key_email(
+    Extension(claims): Extension<Claims>,
+    State(state): State<Arc<AppState>>,
+    Path(license_id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let db = state.db.as_ref().ok_or_else(|| {
+        ApiError::Internal("Base de données indisponible".to_string())
+    })?;
+    require_permission(db, &claims.sub, "can_manage_licenses").await?;
+    LicenseService::send_license_key_by_email(db, &state, &license_id, &claims.tenant_id).await?;
+    Ok(Json(serde_json::json!({"success": true, "message": "Clé de licence envoyée par email."})))
 }

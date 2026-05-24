@@ -6,9 +6,10 @@ use crate::{
     AppState,
     errors::ApiError,
     middleware::auth::Claims,
-    dtos::tenant_dto::{CreateTenantPayload, UpdateTenantPayload, SetTenantTwoFactorPayload, TenantResponse},
+    dtos::tenant_dto::{CreateTenantPayload, UpdateTenantPayload, SetTenantTwoFactorPayload, TenantResponse, PaginatedTenantResponse},
     services::tenant_service::TenantService,
     utils::auth::{require_permission, check_permission},
+
 };
 
 #[derive(serde::Deserialize, utoipa::IntoParams)]
@@ -29,6 +30,10 @@ pub struct ListTenantsQuery {
     pub created_after: Option<String>,
     /// Filtrer par date de création inférieure ou égale (ex: ISO '2026-05-19' ou RFC3339 '2026-05-19T10:00:00Z')
     pub created_before: Option<String>,
+    pub page: Option<u64>,
+    pub per_page: Option<u64>,
+    pub order_by: Option<String>,
+    pub order_type: Option<String>,
 }
 
 #[utoipa::path(
@@ -80,8 +85,9 @@ pub async fn create_tenant(
     params(
         ListTenantsQuery
     ),
+    params(ListTenantsQuery),
     responses(
-        (status = 200, description = "Liste de tous les tenants récupérée avec succès.", body = [TenantResponse]),
+        (status = 200, description = "Liste paginée de tous les tenants.", body = PaginatedTenantResponse),
         (status = 401, description = "Authentification requise ou token JWT invalide."),
         (status = 403, description = "Permissions insuffisantes.")
     ),
@@ -94,7 +100,7 @@ pub async fn list_tenants(
     Extension(claims): Extension<Claims>,
     State(state): State<Arc<AppState>>,
     Query(query): Query<ListTenantsQuery>,
-) -> Result<Json<Vec<TenantResponse>>, ApiError> {
+) -> Result<Json<PaginatedTenantResponse>, ApiError> {
     let db = state.db.as_ref().ok_or_else(|| {
         ApiError::Internal("La base de données n'est pas disponible".to_string())
     })?;
@@ -111,6 +117,9 @@ pub async fn list_tenants(
         ));
     }
 
+    let page = query.page.unwrap_or(1);
+    let per_page = query.per_page.unwrap_or(20);
+
     let response = TenantService::list_tenants(
         db,
         query.business_type,
@@ -118,6 +127,10 @@ pub async fn list_tenants(
         query.is_active,
         query.created_after,
         query.created_before,
+        page,
+        per_page,
+        query.order_by,
+        query.order_type,
     ).await?;
     Ok(Json(response))
 }
@@ -198,6 +211,44 @@ pub async fn update_tenant(
         caller_has_credentials_permission,
     ).await?;
 
+    Ok(Json(response))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/tenants/{id}",
+    responses(
+        (status = 200, description = "Détails du tenant.", body = TenantResponse),
+        (status = 401, description = "Authentification requise."),
+        (status = 403, description = "Permissions insuffisantes."),
+        (status = 404, description = "Tenant introuvable.")
+    ),
+    security(("bearerAuth" = [])),
+    tag = "Admin - Tenant"
+)]
+pub async fn get_tenant_by_id(
+    Extension(claims): Extension<Claims>,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<TenantResponse>, ApiError> {
+    let db = state.db.as_ref().ok_or_else(|| {
+        ApiError::Internal("La base de données n'est pas disponible".to_string())
+    })?;
+
+    require_permission(db, &claims.sub, "can_read_tenant").await?;
+
+    let caller_tenant =
+        TenantService::load_tenant(db, &claims.tenant_id, "Tenant de l'utilisateur introuvable")
+            .await?;
+
+    if !caller_tenant.is_system {
+        return Err(ApiError::Unauthorized(
+            "Seul un utilisateur du tenant système peut consulter un tenant par identifiant."
+                .to_string(),
+        ));
+    }
+
+    let response = TenantService::get_tenant(db, &id).await?;
     Ok(Json(response))
 }
 

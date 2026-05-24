@@ -95,10 +95,46 @@ fn print_usage() {
 
 async fn run_migrations(pool: &AnyPool) -> Result<(), anyhow::Error> {
     println!("Running database migrations...");
-    // Embed and run migrations (force recompile)
-    sqlx::migrate!("./migrations").run(pool).await?;
-    println!("Migrations executed successfully.");
-    Ok(())
+    let migrator = sqlx::migrate!("./migrations");
+    loop {
+        match migrator.run(pool).await {
+            Ok(_) => {
+                println!("Migrations executed successfully.");
+                return Ok(());
+            }
+            Err(e) => {
+                let msg = e.to_string();
+                // SQLite < 3.37 does not support "ADD COLUMN IF NOT EXISTS".
+                // When a column was added manually outside of migrations, the migration
+                // fails with "duplicate column name". We mark it as applied and retry.
+                if msg.contains("duplicate column name") {
+                    let version: Option<i64> = msg
+                        .split("while executing migration ")
+                        .nth(1)
+                        .and_then(|s| s.split(':').next())
+                        .and_then(|s| s.trim().parse().ok());
+
+                    if let Some(ver) = version {
+                        if let Some(mig) = migrator.migrations.iter().find(|m| m.version == ver) {
+                            println!("[WARN] Migration {} skipped: column already exists.", ver);
+                            sqlx::query(
+                                "INSERT OR IGNORE INTO _sqlx_migrations \
+                                 (version, description, success, checksum, execution_time) \
+                                 VALUES (?, ?, 1, ?, 0)"
+                            )
+                            .bind(ver)
+                            .bind(mig.description.as_ref())
+                            .bind(mig.checksum.to_vec())
+                            .execute(pool)
+                            .await?;
+                            continue; // retry — this migration is now recorded, sqlx will skip it
+                        }
+                    }
+                }
+                return Err(e.into());
+            }
+        }
+    }
 }
 
 async fn run_rollback(pool: &AnyPool) -> Result<(), anyhow::Error> {

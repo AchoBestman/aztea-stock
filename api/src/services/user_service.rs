@@ -15,9 +15,37 @@ pub struct UserService;
 impl UserService {
     pub async fn list_users(
         db: &DatabaseConnection,
-        tenant_id: &str,
+        caller_user_id: &str,
+        caller_tenant_id: &str,
+        filter_tenant_id: Option<String>,
     ) -> Result<Vec<UserResponse>, ApiError> {
-        let models = UserRepository::find_all_by_tenant(db, tenant_id).await?;
+        let target_tenant_id = if let Some(ref tid) = filter_tenant_id {
+            use sea_orm::EntityTrait;
+            let caller_tenant = crate::models::tenant::Entity::find_by_id(caller_tenant_id)
+                .one(db)
+                .await?
+                .ok_or_else(|| ApiError::Unauthorized("Tenant introuvable".to_string()))?;
+
+            if !caller_tenant.is_system {
+                return Err(ApiError::Forbidden(
+                    "Seul le tenant système peut lister les utilisateurs d'un autre tenant.".to_string(),
+                ));
+            }
+
+            crate::utils::auth::require_tenant_access(
+                db,
+                caller_tenant_id,
+                tid,
+                caller_user_id,
+                "read",
+            )
+            .await?;
+            tid.clone()
+        } else {
+            caller_tenant_id.to_string()
+        };
+
+        let models = UserRepository::find_all_by_tenant(db, &target_tenant_id).await?;
         let mut responses = Vec::new();
         for m in models {
             let roles = UserRepository::get_user_roles(db, &m.id).await?;
@@ -119,16 +147,32 @@ impl UserService {
 
     pub async fn send_password_reset(
         state: &AppState,
-        tenant_id: &str,
+        caller_tenant_id: &str,
         email: &str,
     ) -> Result<(), ApiError> {
         let db = state.db.as_ref().ok_or_else(|| {
             ApiError::Internal("Base de données indisponible".to_string())
         })?;
 
-        let mut user = UserRepository::find_by_email_and_tenant(db, email, tenant_id)
-            .await?
-            .ok_or_else(|| ApiError::NotFound("Utilisateur introuvable pour ce tenant".to_string()))?;
+        // System tenants can invite users from any tenant; regular tenants are scoped.
+        let caller_is_system = {
+            use sea_orm::EntityTrait;
+            crate::models::tenant::Entity::find_by_id(caller_tenant_id)
+                .one(db)
+                .await?
+                .map(|t| t.is_system)
+                .unwrap_or(false)
+        };
+
+        let mut user = if caller_is_system {
+            UserRepository::find_by_email(db, email)
+                .await?
+                .ok_or_else(|| ApiError::NotFound("Utilisateur introuvable".to_string()))?
+        } else {
+            UserRepository::find_by_email_and_tenant(db, email, caller_tenant_id)
+                .await?
+                .ok_or_else(|| ApiError::NotFound("Utilisateur introuvable pour ce tenant".to_string()))?
+        };
 
         // Generate 6-digit random code
         let code: String = (0..6)
@@ -140,10 +184,11 @@ impl UserService {
         user.two_factor_expires_at = Some(
             (chrono::Utc::now() + chrono::Duration::hours(1)).fixed_offset(),
         );
+        let actual_tenant_id = user.tenant_id.clone();
         UserRepository::update(db, user).await?;
 
-        // Send email
-        let _ = send_password_reset_email(state, tenant_id, email, &code).await;
+        // Use the user's actual tenant for the email (correct name in template)
+        let _ = send_password_reset_email(state, &actual_tenant_id, email, &code).await;
 
         Ok(())
     }

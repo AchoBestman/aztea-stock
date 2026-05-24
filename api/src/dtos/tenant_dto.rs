@@ -8,8 +8,11 @@ pub struct CreateTenantPayload {
     pub email: String,
     pub phone: Option<String>,
     pub address: Option<String>,
-    pub country: Option<String>,
-    pub timezone: Option<String>,
+    pub country: String,
+    /// Code pays ISO (ex: CG, FR)
+    pub country_code: Option<String>,
+    pub city: String,
+    pub timezone: String,
     pub logo_url: Option<String>,
 }
 
@@ -20,8 +23,10 @@ pub struct UpdateTenantPayload {
     pub email: Option<String>,
     pub phone: Option<Option<String>>,
     pub address: Option<Option<String>>,
-    pub country: Option<Option<String>>,
-    pub timezone: Option<Option<String>>,
+    pub country: Option<String>,
+    pub country_code: Option<String>,
+    pub city: Option<String>,
+    pub timezone: Option<String>,
     pub logo_url: Option<Option<String>>,
     pub is_active: Option<Option<bool>>,
     pub sender_email: Option<Option<String>>,
@@ -50,8 +55,11 @@ pub struct TenantResponse {
     pub phone: Option<String>,
     #[schema(example = "12 Avenue de la Paix")]
     pub address: Option<String>,
-    #[schema(example = "CG")]
+    #[schema(example = "Brazzaville")]
+    pub city: Option<String>,
     pub country: Option<String>,
+    #[schema(example = "CG")]
+    pub country_code: Option<String>,
     #[schema(example = "Africa/Brazzaville")]
     pub timezone: Option<String>,
     #[schema(example = "https://cdn.aztea.com/logo.png")]
