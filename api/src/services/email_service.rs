@@ -388,29 +388,30 @@ pub async fn send_password_reset_email(
     code: &str,
 ) -> Result<bool, anyhow::Error> {
     let name = tenant_name(state, tenant_id).await;
-    let reset_link = format!(
-        "{}/reset-password?email={}&code={}",
-        state.config.frontend_url,
-        urlencoding::encode(to),
-        code
-    );
     let body = format!(
-        r#"<h2 style="margin:0 0 8px;font-size:22px;color:#0f172a;">Initialisation de votre compte</h2>
+        r#"<h2 style="margin:0 0 8px;font-size:22px;color:#0f172a;">Réinitialisation de votre mot de passe</h2>
 <p style="margin:0 0 16px;font-size:14px;color:#64748b;">Vous avez été invité ou avez demandé à réinitialiser votre mot de passe pour {name}.</p>
+<p style="margin:0 0 24px;font-size:14px;color:#64748b;">Ouvrez l'application AzteaStock, puis utilisez le lien <strong>Changer mon mot de passe</strong> sur la page de connexion avec le code ci-dessous.</p>
 <div style="background:#f1f5f9;border-radius:10px;padding:32px;text-align:center;margin-bottom:28px;">
   <p style="margin:0 0 12px;font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;">Votre code OTP</p>
   <div style="font-size:40px;font-weight:800;letter-spacing:12px;color:#140066;font-family:monospace;">{code}</div>
   <p style="margin:16px 0 0;font-size:12px;color:#94a3b8;">⏱ Expire dans <strong>1 heure</strong></p>
-</div>
-<p style="margin:0 0 24px;font-size:14px;color:#64748b;text-align:center;">Ou cliquez sur le bouton ci-dessous pour continuer depuis un navigateur :</p>
-<div style="text-align:center;margin-bottom:32px;">
-  <a href="{reset_link}" style="background:#140066;color:#ffffff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">
-    Définir mon mot de passe
-  </a>
 </div>"#
     );
-    let html = base_template(&name, "Initialisation du mot de passe", "Définir votre mot de passe", &body);
-    enqueue_email(state, tenant_id, to, &format!("{} — Initialisation de votre compte", name), &html).await
+    let html = base_template(
+        &name,
+        "Réinitialisation du mot de passe",
+        &format!("Votre code de réinitialisation : {}", code),
+        &body,
+    );
+    enqueue_email(
+        state,
+        tenant_id,
+        to,
+        &format!("{} — Code de réinitialisation", name),
+        &html,
+    )
+    .await
 }
 
 /// Sends the plain license key to the tenant's email (admin action)

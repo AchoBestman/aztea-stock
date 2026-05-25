@@ -9,6 +9,8 @@ import Categories from './pages/Categories';
 import Reports from './pages/Reports';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import Users from './pages/Users';
 import Roles from './pages/Roles';
 import Sync from './pages/Sync';
@@ -35,6 +37,8 @@ function App() {
         <Routes>
         {/* Public Login Route */}
         <Route path="/login" element={<Login />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
 
         {/* Authenticated Dashboard / Layout Wrapper */}
         <Route path="/" element={<Layout />}>

@@ -1,12 +1,17 @@
 // API Client Service for Aztea Stock
 // Integrates the React frontend with the Rust Axum backend
 
-export function getApiBaseUrl(): string {
-  return localStorage.getItem('aztea_api_base_url') || '';
-}
+import { getApiBaseUrl, setApiBaseUrl } from "../lib/env";
 
-export function setApiBaseUrl(url: string) {
-  localStorage.setItem('aztea_api_base_url', url);
+export { getApiBaseUrl, setApiBaseUrl };
+
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
 }
 
 export interface UserProfile {
@@ -321,7 +326,10 @@ async function request<T>(
       window.dispatchEvent(new Event('auth-logout'));
     }
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.message || `API Error: ${response.statusText}`);
+    const message =
+      (errorData as { message?: string }).message ||
+      `API Error: ${response.statusText}`;
+    throw new ApiError(message, response.status);
   }
 
   return response.json() as Promise<T>;
@@ -337,6 +345,18 @@ export const api = {
       }),
     
     getProfile: () => request<UserProfile>('/auth/profile'),
+
+    forgotPassword: (email: string) =>
+      request<{ success: boolean; message: string }>('/auth/forgot-password', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      }),
+
+    resetPassword: (email: string, otp_code: string, new_password: string) =>
+      request<{ success: boolean; message: string }>('/auth/reset-password', {
+        method: 'POST',
+        body: JSON.stringify({ email, otp_code, new_password }),
+      }),
   },
 
   // Tenants management
