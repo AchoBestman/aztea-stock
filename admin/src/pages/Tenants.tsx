@@ -13,6 +13,8 @@ import Badge from "../components/Badge";
 import Modal from "../components/Modal";
 import GeoFields, { type GeoValues } from "../components/GeoFields";
 import AvatarUpload from "../components/AvatarUpload";
+import LogoUrlField from "../components/LogoUrlField";
+import { useR2UploadAvailable } from "../hooks/useR2Upload";
 
 const emptyGeo: GeoValues = { country: "", country_name: "", city: "", timezone: "" };
 
@@ -28,6 +30,7 @@ const emptyForm: CreateTenantPayload = {
 };
 
 export default function Tenants() {
+  const r2UploadAvailable = useR2UploadAvailable();
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -84,10 +87,16 @@ export default function Tenants() {
     }
     setSaving(true);
     try {
-      let logo_url: string | undefined;
-      if (avatarFile) {
+      let logo_url: string | undefined = form.logo_url;
+      if (r2UploadAvailable && avatarFile) {
         const up = await uploadTenantAvatar(form.name, avatarFile);
         logo_url = up.url;
+      } else if (avatarFile && !r2UploadAvailable) {
+        toast.error(
+          "Upload fichier indisponible : configurez R2 dans admin/.env (voir .env.example) ou utilisez une URL de logo."
+        );
+        setSaving(false);
+        return;
       }
       await api.tenants.create({
         ...form,
@@ -274,11 +283,20 @@ export default function Tenants() {
       {modalOpen && (
         <Modal title="Nouvelle entreprise" onClose={() => setModalOpen(false)} wide>
           <form onSubmit={handleCreate} className="space-y-4">
-            <AvatarUpload
-              previewUrl={null}
-              onFileSelect={setAvatarFile}
-              disabled={saving}
-            />
+            {r2UploadAvailable === null ? (
+              <p className="text-xs text-muted-foreground">Vérification du stockage…</p>
+            ) : r2UploadAvailable ? (
+              <AvatarUpload
+                previewUrl={form.logo_url ?? null}
+                onFileSelect={setAvatarFile}
+                disabled={saving}
+              />
+            ) : (
+              <LogoUrlField
+                value={form.logo_url ?? ""}
+                onChange={(logo_url) => setForm({ ...form, logo_url })}
+              />
+            )}
             <input
               required
               placeholder="Nom commercial"

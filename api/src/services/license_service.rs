@@ -302,15 +302,11 @@ impl LicenseService {
     pub async fn reveal_license_key(
         db: &DatabaseConnection,
         license_id: &str,
+        caller_user_id: &str,
         caller_tenant_id: &str,
     ) -> Result<RevealLicenseResponse, ApiError> {
         use sea_orm::EntityTrait;
-        let caller = crate::models::tenant::Entity::find_by_id(caller_tenant_id)
-            .one(db).await?
-            .ok_or_else(|| ApiError::Unauthorized("Tenant introuvable".to_string()))?;
-        if !caller.is_system {
-            return Err(ApiError::Forbidden("Seul le tenant système peut révéler une clé de licence.".to_string()));
-        }
+        crate::utils::auth::assert_system_admin_access(db, caller_user_id, caller_tenant_id).await?;
         let model = license::Entity::find_by_id(license_id)
             .one(db).await?
             .ok_or_else(|| ApiError::NotFound("Licence introuvable".to_string()))?;
@@ -326,15 +322,11 @@ impl LicenseService {
         db: &DatabaseConnection,
         state: &crate::AppState,
         license_id: &str,
+        caller_user_id: &str,
         caller_tenant_id: &str,
     ) -> Result<(), ApiError> {
         use sea_orm::EntityTrait;
-        let caller = crate::models::tenant::Entity::find_by_id(caller_tenant_id)
-            .one(db).await?
-            .ok_or_else(|| ApiError::Unauthorized("Tenant introuvable".to_string()))?;
-        if !caller.is_system {
-            return Err(ApiError::Forbidden("Seul le tenant système peut envoyer une clé de licence.".to_string()));
-        }
+        crate::utils::auth::assert_system_admin_access(db, caller_user_id, caller_tenant_id).await?;
         let model = license::Entity::find_by_id(license_id)
             .one(db).await?
             .ok_or_else(|| ApiError::NotFound("Licence introuvable".to_string()))?;

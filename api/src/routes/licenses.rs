@@ -6,8 +6,8 @@ use crate::controllers::license_controller::{generate_license, list_licenses, ac
 pub fn admin_router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/licenses", post(generate_license).get(list_licenses))
-        .route("/licenses/{id}/reveal", get(reveal_license_key))
-        .route("/licenses/{id}/send-key", post(send_license_key_email))
+        .route("/licenses/:id/reveal", get(reveal_license_key))
+        .route("/licenses/:id/send-key", post(send_license_key_email))
 }
 
 /// Routes under /api/v1/licenses — accessible to any authenticated user

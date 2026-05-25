@@ -314,6 +314,9 @@ impl UserService {
             .await?
             .ok_or_else(|| ApiError::NotFound("Tenant introuvable".to_string()))?;
 
+        let (roles, permissions) =
+            crate::utils::auth::fetch_user_roles_and_permissions(db, user_id).await?;
+
         Ok(crate::dtos::user_dto::UserProfileResponse {
             id: user.id,
             name: user.name,
@@ -321,6 +324,8 @@ impl UserService {
             is_active: user.is_active,
             two_factor_enabled: user.two_factor_enabled,
             tenant: crate::dtos::user_dto::UserProfileTenantResponse::from_tenant(&tenant),
+            roles,
+            permissions,
         })
     }
 

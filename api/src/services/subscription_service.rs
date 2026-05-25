@@ -144,15 +144,11 @@ impl SubscriptionService {
     pub async fn delete_subscription(
         db: &DatabaseConnection,
         subscription_id: &str,
+        caller_user_id: &str,
         caller_tenant_id: &str,
     ) -> Result<(), ApiError> {
         use sea_orm::EntityTrait;
-        let caller = crate::models::tenant::Entity::find_by_id(caller_tenant_id)
-            .one(db).await?
-            .ok_or_else(|| ApiError::Unauthorized("Tenant introuvable".to_string()))?;
-        if !caller.is_system {
-            return Err(ApiError::Forbidden("Seul le tenant système peut supprimer un abonnement.".to_string()));
-        }
+        crate::utils::auth::assert_system_admin_access(db, caller_user_id, caller_tenant_id).await?;
         subscription::Entity::find_by_id(subscription_id)
             .one(db).await?
             .ok_or_else(|| ApiError::NotFound("Abonnement introuvable".to_string()))?;
@@ -164,15 +160,11 @@ impl SubscriptionService {
         db: &DatabaseConnection,
         subscription_id: &str,
         payload: UpdateSubscriptionStatusPayload,
+        caller_user_id: &str,
         caller_tenant_id: &str,
     ) -> Result<SubscriptionResponse, ApiError> {
         use sea_orm::EntityTrait;
-        let caller = crate::models::tenant::Entity::find_by_id(caller_tenant_id)
-            .one(db).await?
-            .ok_or_else(|| ApiError::Unauthorized("Tenant introuvable".to_string()))?;
-        if !caller.is_system {
-            return Err(ApiError::Forbidden("Seul le tenant système peut modifier le statut d'un abonnement.".to_string()));
-        }
+        crate::utils::auth::assert_system_admin_access(db, caller_user_id, caller_tenant_id).await?;
         let sub = subscription::Entity::find_by_id(subscription_id)
             .one(db).await?
             .ok_or_else(|| ApiError::NotFound("Abonnement introuvable".to_string()))?;

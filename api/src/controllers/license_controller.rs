@@ -146,7 +146,7 @@ pub async fn reveal_license_key(
         ApiError::Internal("Base de données indisponible".to_string())
     })?;
     require_permission(db, &claims.sub, "can_manage_licenses").await?;
-    let resp = LicenseService::reveal_license_key(db, &license_id, &claims.tenant_id).await?;
+    let resp = LicenseService::reveal_license_key(db, &license_id, &claims.sub, &claims.tenant_id).await?;
     Ok(Json(resp))
 }
 
@@ -169,6 +169,6 @@ pub async fn send_license_key_email(
         ApiError::Internal("Base de données indisponible".to_string())
     })?;
     require_permission(db, &claims.sub, "can_manage_licenses").await?;
-    LicenseService::send_license_key_by_email(db, &state, &license_id, &claims.tenant_id).await?;
+    LicenseService::send_license_key_by_email(db, &state, &license_id, &claims.sub, &claims.tenant_id).await?;
     Ok(Json(serde_json::json!({"success": true, "message": "Clé de licence envoyée par email."})))
 }

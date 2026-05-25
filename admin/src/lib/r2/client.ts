@@ -5,6 +5,7 @@ import {
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { assertR2UploadConfigured } from "./serverConfig";
 
 function env(name: string): string {
   return process.env[name] || "";
@@ -33,7 +34,7 @@ export async function uploadToR2(
   contentType: string,
   metadata?: Record<string, string>
 ): Promise<void> {
-  if (!BUCKET) throw new Error("R2_BUCKET_NAME manquant");
+  assertR2UploadConfigured();
   await r2Client.send(
     new PutObjectCommand({
       Bucket: BUCKET,

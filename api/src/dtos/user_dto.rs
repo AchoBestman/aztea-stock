@@ -94,6 +94,8 @@ pub struct UserProfileResponse {
     pub is_active: Option<bool>,
     pub two_factor_enabled: bool,
     pub tenant: UserProfileTenantResponse,
+    pub roles: Vec<String>,
+    pub permissions: Vec<String>,
 }
 
 #[derive(Deserialize, ToSchema, Clone, Debug)]

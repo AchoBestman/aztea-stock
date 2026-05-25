@@ -1,8 +1,52 @@
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, PaginatorTrait};
 use crate::{
     errors::ApiError,
-    models::{user_role, role_permission, permission, role}
+    models::{user_role, role_permission, permission, role, tenant},
 };
+
+/// Rôles et noms de permissions effectifs pour un utilisateur (Super Admin → toutes les permissions).
+pub async fn fetch_user_roles_and_permissions(
+    db: &sea_orm::DatabaseConnection,
+    user_id: &str,
+) -> Result<(Vec<String>, Vec<String>), sea_orm::DbErr> {
+    let user_roles = user_role::Entity::find()
+        .filter(user_role::Column::UserId.eq(user_id))
+        .all(db)
+        .await?;
+
+    let role_ids: Vec<String> = user_roles.into_iter().map(|ur| ur.role_id).collect();
+    if role_ids.is_empty() {
+        return Ok((Vec::new(), Vec::new()));
+    }
+
+    let roles = role::Entity::find()
+        .filter(role::Column::Id.is_in(role_ids.clone()))
+        .all(db)
+        .await?;
+    let role_names: Vec<String> = roles.iter().map(|r| r.name.clone()).collect();
+
+    if roles.iter().any(|r| r.name == "Super Admin") {
+        let all_perms = permission::Entity::find().all(db).await?;
+        let perm_names: Vec<String> = all_perms.into_iter().map(|p| p.name).collect();
+        return Ok((role_names, perm_names));
+    }
+
+    let role_perms = role_permission::Entity::find()
+        .filter(role_permission::Column::RoleId.is_in(role_ids))
+        .all(db)
+        .await?;
+    let perm_ids: Vec<String> = role_perms.into_iter().map(|rp| rp.permission_id).collect();
+    if perm_ids.is_empty() {
+        return Ok((role_names, Vec::new()));
+    }
+
+    let permissions = permission::Entity::find()
+        .filter(permission::Column::Id.is_in(perm_ids))
+        .all(db)
+        .await?;
+    let perm_names: Vec<String> = permissions.into_iter().map(|p| p.name).collect();
+    Ok((role_names, perm_names))
+}
 
 /// Check if a user has a specific permission.
 /// Returns true if the user has the required permission or has the "Super Admin" role.
@@ -49,6 +93,36 @@ pub async fn check_permission(
         .await?;
 
     Ok(count > 0)
+}
+
+/// Accès administration globale (licences, abonnements cross-tenant) : tenant système ou Super Admin.
+pub async fn assert_system_admin_access(
+    db: &sea_orm::DatabaseConnection,
+    user_id: &str,
+    caller_tenant_id: &str,
+) -> Result<(), ApiError> {
+    if crate::services::role_service::RoleService::is_system_super_admin(
+        db,
+        user_id,
+        caller_tenant_id,
+    )
+    .await?
+    {
+        return Ok(());
+    }
+
+    let caller = tenant::Entity::find_by_id(caller_tenant_id)
+        .one(db)
+        .await?
+        .ok_or_else(|| ApiError::NotFound("Tenant de l'opérateur introuvable".to_string()))?;
+
+    if caller.is_system {
+        return Ok(());
+    }
+
+    Err(ApiError::Forbidden(
+        "Action réservée au tenant système ou au rôle Super Admin.".to_string(),
+    ))
 }
 
 /// Enforces that a user has a specific permission, returning an ApiError::Unauthorized if not.

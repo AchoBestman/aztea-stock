@@ -3,6 +3,11 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { loadEnv } from "vite";
 import Busboy from "busboy";
 import { uploadToR2 } from "./src/lib/r2/client";
+import {
+  getMissingR2EnvVars,
+  getR2PublicBaseUrl,
+  isR2UploadConfigured,
+} from "./src/lib/r2/serverConfig";
 
 async function handleUpload(
   req: IncomingMessage,
@@ -44,7 +49,7 @@ async function handleUpload(
           return;
         }
         await uploadToR2(key, fileBuffer, fileMime);
-        const base = (process.env.R2_PUBLIC_URL || "").replace(/\/$/, "");
+        const base = getR2PublicBaseUrl();
         const url = base ? `${base}/${key}` : key;
         res.setHeader("Content-Type", "application/json");
         res.end(JSON.stringify({ key, url }));
@@ -58,53 +63,60 @@ async function handleUpload(
   });
 }
 
+function applyEnv(mode: string) {
+  const env = loadEnv(mode, process.cwd(), "");
+  Object.assign(process.env, env);
+}
+
+function handleStatus(res: ServerResponse): void {
+  res.setHeader("Content-Type", "application/json");
+  res.end(
+    JSON.stringify({
+      configured: isR2UploadConfigured(),
+      missing: getMissingR2EnvVars(),
+      publicUrl: getR2PublicBaseUrl(),
+    })
+  );
+}
+
+function r2Middleware(
+  req: IncomingMessage,
+  res: ServerResponse,
+  next: () => void
+): void {
+  if (req.url === "/__r2/status" && req.method === "GET") {
+    handleStatus(res);
+    return;
+  }
+  if (!req.url?.startsWith("/__r2/upload")) {
+    next();
+    return;
+  }
+  if (req.method !== "POST") {
+    res.statusCode = 405;
+    res.end();
+    return;
+  }
+  void handleUpload(req, res).catch((e) => {
+    res.statusCode = 500;
+    res.end(
+      JSON.stringify({
+        message: e instanceof Error ? e.message : "Erreur R2",
+      })
+    );
+  });
+}
+
 export function r2UploadPlugin(): Plugin {
   return {
     name: "aztea-r2-upload",
     configureServer(server) {
-      const env = loadEnv(server.config.mode, process.cwd(), "");
-      Object.assign(process.env, env);
-
-      server.middlewares.use(async (req, res, next) => {
-        if (!req.url?.startsWith("/__r2/upload")) return next();
-        if (req.method !== "POST") {
-          res.statusCode = 405;
-          res.end();
-          return;
-        }
-        try {
-          await handleUpload(req, res);
-        } catch (e) {
-          res.statusCode = 500;
-          res.end(
-            JSON.stringify({
-              message: e instanceof Error ? e.message : "Erreur R2",
-            })
-          );
-        }
-      });
+      applyEnv(server.config.mode);
+      server.middlewares.use(r2Middleware);
     },
     configurePreviewServer(server) {
-      const env = loadEnv("production", process.cwd(), "");
-      Object.assign(process.env, env);
-      server.middlewares.use(async (req, res, next) => {
-        if (!req.url?.startsWith("/__r2/upload")) return next();
-        if (req.method !== "POST") {
-          res.statusCode = 405;
-          res.end();
-          return;
-        }
-        try {
-          await handleUpload(req, res);
-        } catch (e) {
-          res.statusCode = 500;
-          res.end(
-            JSON.stringify({
-              message: e instanceof Error ? e.message : "Erreur R2",
-            })
-          );
-        }
-      });
+      applyEnv("production");
+      server.middlewares.use(r2Middleware);
     },
   };
 }

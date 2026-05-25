@@ -343,6 +343,12 @@ async fn run_seeds(pool: &AnyPool) -> Result<(), anyhow::Error> {
         // Sync
         ("can_read_sync_log", "Permet de lire le journal de sync", "sync"),
         ("can_manage_sync_log", "Permet de gérer le journal de sync", "sync"),
+        // Subscriptions (admin système)
+        ("can_read_subscriptions", "Permet de consulter les abonnements", "subscriptions"),
+        ("can_manage_subscriptions", "Permet de gérer les abonnements (création, statut, suppression)", "subscriptions"),
+        // Licenses (admin système)
+        ("can_read_licenses", "Permet de consulter les licences", "licenses"),
+        ("can_manage_licenses", "Permet de gérer les licences (génération, révélation, envoi)", "licenses"),
         // Auth / Appareils
         ("can_read_device_key", "Permet d'obtenir la clé de chiffrement de l'appareil", "auth"),
         // Tenants

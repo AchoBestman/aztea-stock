@@ -58,11 +58,19 @@ async fn main() -> anyhow::Result<()> {
 
 pub fn create_app(state: Arc<AppState>) -> Router {
     // ── Routes requiring only JWT (auth + license public actions) ────────────
+    let admin_jwt = routes::role_routes::router()
+        .merge(routes::tenant_routes::router())
+        .merge(routes::user_routes::router())
+        .merge(routes::subscriptions::admin_router())
+        .merge(routes::licenses::admin_router());
+
     let jwt_only = Router::new()
         .nest("/api/v1/health", routes::health::router())
         .nest("/api/v1/auth", routes::auth::router())
         // License status & activate — auth required but no license guard (chicken-and-egg)
         .nest("/api/v1/licenses", routes::licenses::public_router())
+        // Admin panel (licences, abonnements, tenants…) — JWT only, pas de garde licence
+        .nest("/api/v1/admin", admin_jwt)
         .layer(axum::middleware::from_fn_with_state(state.clone(), middleware::auth::extract_tenant));
 
     // ── Business routes requiring JWT + active license ────────────────────────
@@ -73,11 +81,6 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .nest("/api/v1/reports", routes::reports::router())
         // Gescom — ventes, achats, alertes, sync/logs
         .nest("/api/v1", routes::gescom::router())
-        .nest("/api/v1/admin", routes::role_routes::router()
-            .merge(routes::tenant_routes::router())
-            .merge(routes::user_routes::router())
-            .merge(routes::subscriptions::admin_router())
-            .merge(routes::licenses::admin_router()))
         // Apply JWT first, then license guard
         .layer(axum::middleware::from_fn_with_state(state.clone(), middleware::license_guard::check_license))
         .layer(axum::middleware::from_fn_with_state(state.clone(), middleware::auth::extract_tenant));

@@ -18,13 +18,11 @@ import Badge from "../components/Badge";
 import Modal from "../components/Modal";
 import GeoFields, { type GeoValues } from "../components/GeoFields";
 import AvatarUpload from "../components/AvatarUpload";
-
-const r2Configured =
-  !!(import.meta.env.VITE_R2_BUCKET_NAME as string | undefined) ||
-  !!(import.meta.env.VITE_R2_PUBLIC_URL as string | undefined) ||
-  true; // always show file picker — upload errors are caught gracefully
+import LogoUrlField from "../components/LogoUrlField";
+import { useR2UploadAvailable } from "../hooks/useR2Upload";
 
 export default function TenantDetail() {
+  const r2UploadAvailable = useR2UploadAvailable();
   const { id } = useParams<{ id: string }>();
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
@@ -104,7 +102,7 @@ export default function TenantDetail() {
       return;
     }
     let logo_url: string | undefined;
-    if (r2Configured && avatarFile) {
+    if (r2UploadAvailable && avatarFile) {
       setUploadProgress(0);
       try {
         const up = await uploadTenantAvatar(
@@ -120,9 +118,8 @@ export default function TenantDetail() {
         setUploadProgress(null);
       }
     } else {
-      logo_url = r2Configured
-        ? (tenant.logo_url ?? undefined)
-        : ((form.logo_url as string | undefined) ?? tenant.logo_url ?? undefined);
+      logo_url =
+        (form.logo_url as string | undefined) ?? tenant.logo_url ?? undefined;
     }
     try {
       const updated = await api.tenants.update(id, {
@@ -571,26 +568,19 @@ export default function TenantDetail() {
       {editOpen && (
         <Modal title="Modifier l'entreprise" onClose={() => setEditOpen(false)} wide>
           <form onSubmit={save} className="space-y-3">
-            {r2Configured ? (
+            {r2UploadAvailable === null ? (
+              <p className="text-xs text-muted-foreground">Vérification du stockage…</p>
+            ) : r2UploadAvailable ? (
               <AvatarUpload
                 previewUrl={tenant.logo_url}
                 onFileSelect={setAvatarFile}
                 progress={uploadProgress}
               />
             ) : (
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-muted-foreground">Logo URL (optionnel)</label>
-                <input
-                  type="url"
-                  placeholder="https://…"
-                  className="form-input"
-                  value={(form.logo_url as string | undefined) ?? tenant.logo_url ?? ""}
-                  onChange={(e) => setForm({ ...form, logo_url: e.target.value || undefined })}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Upload R2 non configuré — collez une URL d&apos;image directement.
-                </p>
-              </div>
+              <LogoUrlField
+                value={(form.logo_url as string | undefined) ?? tenant.logo_url ?? ""}
+                onChange={(logo_url) => setForm({ ...form, logo_url })}
+              />
             )}
             <input
               className="form-input"

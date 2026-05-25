@@ -103,7 +103,7 @@ pub async fn delete_subscription(
         ApiError::Internal("Base de données indisponible".to_string())
     })?;
     require_permission(db, &claims.sub, "can_manage_subscriptions").await?;
-    SubscriptionService::delete_subscription(db, &subscription_id, &claims.tenant_id).await?;
+    SubscriptionService::delete_subscription(db, &subscription_id, &claims.sub, &claims.tenant_id).await?;
     Ok(Json(serde_json::json!({"success": true, "message": "Abonnement supprimé."})))
 }
 
@@ -128,6 +128,6 @@ pub async fn update_subscription_status(
         ApiError::Internal("Base de données indisponible".to_string())
     })?;
     require_permission(db, &claims.sub, "can_manage_subscriptions").await?;
-    let sub = SubscriptionService::update_subscription_status(db, &subscription_id, payload, &claims.tenant_id).await?;
+    let sub = SubscriptionService::update_subscription_status(db, &subscription_id, payload, &claims.sub, &claims.tenant_id).await?;
     Ok(Json(sub))
 }
