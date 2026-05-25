@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import Sidebar from './Sidebar';
@@ -5,7 +6,13 @@ import Header from './Header';
 import { ShieldAlert } from 'lucide-react';
 
 export default function Layout() {
-  const { isAuthenticated, licenseStatus } = useAuthStore();
+  const { isAuthenticated, licenseStatus, hydrateSession } = useAuthStore();
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      hydrateSession();
+    }
+  }, [isAuthenticated, hydrateSession]);
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;

@@ -320,16 +320,7 @@ impl UserService {
             email: user.email,
             is_active: user.is_active,
             two_factor_enabled: user.two_factor_enabled,
-            tenant: crate::dtos::user_dto::UserProfileTenantResponse {
-                name: tenant.name,
-                email: tenant.email,
-                phone: tenant.phone,
-                country: tenant.country,
-                address: tenant.address,
-                business_type: tenant.business_type,
-                created_at: tenant.created_at.to_rfc3339(),
-                is_active: tenant.is_active,
-            },
+            tenant: crate::dtos::user_dto::UserProfileTenantResponse::from_tenant(&tenant),
         })
     }
 

@@ -6,6 +6,9 @@ export interface User {
   name: string;
   role: 'cashier' | 'manager' | 'admin' | 'Super Admin';
   tenantId: string;
+  tenantName: string;
+  tenantLogoUrl: string | null;
+  tenantBusinessType: string;
 }
 
 interface AuthState {
@@ -16,6 +19,7 @@ interface AuthState {
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
+  hydrateSession: () => Promise<void>;
   activateLicense: (key: string) => Promise<boolean>;
   checkLicenseStatus: () => Promise<void>;
 }
@@ -35,6 +39,9 @@ const mapProfileToUser = (profile: UserProfile): User => {
     name: profile.name,
     role,
     tenantId: profile.tenant_id,
+    tenantName: profile.tenant?.name ?? profile.tenant_name ?? 'Établissement',
+    tenantLogoUrl: profile.tenant?.logo_url ?? null,
+    tenantBusinessType: profile.tenant?.business_type ?? 'pharmacy',
   };
 };
 
@@ -96,6 +103,26 @@ export const useAuthStore = create<AuthState>((set, get) => {
       localStorage.removeItem('aztea_license_status');
       localStorage.removeItem('aztea_trial_days');
       set({ user: null, isAuthenticated: false, licenseKey: null });
+    },
+
+    hydrateSession: async () => {
+      const token = localStorage.getItem('aztea_access_token');
+      const raw = localStorage.getItem('aztea_user');
+      if (!token || !raw) return;
+
+      try {
+        const stored = JSON.parse(raw) as UserProfile;
+        const profile = await api.auth.getProfile();
+        const merged: UserProfile = {
+          ...stored,
+          tenant: profile.tenant,
+          tenant_name: profile.tenant.name,
+        };
+        localStorage.setItem('aztea_user', JSON.stringify(merged));
+        set({ user: mapProfileToUser(merged) });
+      } catch (error) {
+        console.error('Failed to hydrate session:', error);
+      }
     },
 
     activateLicense: async (key) => {

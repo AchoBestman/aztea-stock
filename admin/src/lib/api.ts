@@ -23,6 +23,17 @@ export class ApiError extends Error {
   }
 }
 
+export interface UserProfileTenant {
+  name: string;
+  email: string;
+  phone: string | null;
+  country: string | null;
+  address: string | null;
+  business_type: string;
+  created_at: string;
+  is_active: boolean | null;
+}
+
 export interface UserProfile {
   id: string;
   name: string;
@@ -30,6 +41,7 @@ export interface UserProfile {
   role: string;
   tenant_id: string;
   tenant_name: string;
+  tenant: UserProfileTenant;
   roles: string[];
   permissions: string[];
 }

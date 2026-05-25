@@ -74,6 +74,9 @@ async fn test_login_success() {
     assert_eq!(body["user"]["role"], "manager");
     assert_eq!(body["user"]["tenant_id"], "tenant-1");
     assert_eq!(body["user"]["tenant_name"], "Pharmacie Test");
+    assert_eq!(body["user"]["tenant"]["name"], "Pharmacie Test");
+    assert_eq!(body["user"]["tenant"]["business_type"], "both");
+    assert!(body["user"]["tenant"]["logo_url"].is_null());
     
     let roles_arr = body["user"]["roles"].as_array().unwrap();
     assert_eq!(roles_arr.len(), 1);

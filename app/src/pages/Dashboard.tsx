@@ -6,8 +6,15 @@ import {
 } from 'lucide-react';
 import { useSyncStore } from '../store/syncStore';
 import { useAuthStore } from '../store/authStore';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { api, Sale, StockItem } from '../services/api';
+import { getDashboardPerformanceSubtitle } from '../lib/format';
+import {
+  buildRevenueChartSeries,
+  buildChartPaths,
+  formatChartAxisValue,
+  getChartMaxValue,
+} from '../lib/dashboardChart';
 
 export default function Dashboard() {
   const { isOnline, lastSyncAt } = useSyncStore();
@@ -28,7 +35,7 @@ export default function Dashboard() {
       try {
         const [salesRes, stockRes] = await Promise.all([
           api.sales.list('', '', 1, 1000),
-          api.stock.listItems('', false, '', 1, 1000)
+          api.stock.listItems('', false, '', 1, 1000),
         ]);
         setSales(salesRes.data || []);
         setStockItems(stockRes.data || []);
@@ -106,6 +113,20 @@ export default function Dashboard() {
     return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XAF', minimumFractionDigits: 0 }).format(val).replace('FCFA', 'F');
   };
 
+  const chartSeries = useMemo(
+    () => buildRevenueChartSeries(filteredSales, selectedPeriod, dateRange),
+    [filteredSales, selectedPeriod, dateRange]
+  );
+  const chartMax = getChartMaxValue(chartSeries.values);
+  const chartPaths = useMemo(
+    () => buildChartPaths(chartSeries.values),
+    [chartSeries.values]
+  );
+  const hasChartData = chartMax > 0;
+  const yAxisTicks = hasChartData
+    ? [chartMax, chartMax * (2 / 3), chartMax * (1 / 3), 0]
+    : [0, 0, 0, 0];
+
   return (
     <div className="space-y-8 animate-slide-up select-none">
       {/* Welcome banner with time & Quick status */}
@@ -115,7 +136,7 @@ export default function Dashboard() {
             Bonjour, <span className="gradient-text">{user?.name || 'Gérant'}</span> 👋
           </h1>
           <p className="text-muted-foreground mt-1 font-medium">
-            Voici les performances d'aujourd'hui pour votre officine.
+            {getDashboardPerformanceSubtitle(user?.tenantBusinessType ?? 'pharmacy')}
           </p>
         </div>
 
@@ -217,7 +238,7 @@ export default function Dashboard() {
                 <p className={`text-xs font-semibold mt-1 ${
                   lowStockItems.length > 0 ? 'text-rose-500 animate-pulse' : 'text-emerald-500'
                 }`}>
-                  {lowStockItems.length > 0 ? `${criticalStockItems.length} rupture(s) critique(s)` : 'Tous les stocks sont OK'}
+                  {lowStockItems.length > 0 ? `${criticalStockItems.length} rupture(s) critique(s)` :  lowStockItems.length > 0 ? 'Tous les stocks sont OK' : 'Aucun stock en alerte'}
                 </p>
               </div>
             </div>
@@ -256,49 +277,70 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Elegant SVG Line chart */}
-              <div className="flex-1 min-h-[220px] flex items-end justify-between relative pt-6 px-2">
-                {/* Grid Lines */}
-                <div className="absolute inset-0 flex flex-col justify-between pointer-events-none text-[10px] text-muted-foreground/40 font-medium">
-                  <div className="border-b border-border/50 pb-1 w-full text-right">250k F</div>
-                  <div className="border-b border-border/50 pb-1 w-full text-right">150k F</div>
-                  <div className="border-b border-border/50 pb-1 w-full text-right">50k F</div>
-                  <div className="w-full text-right">0 F</div>
+              <div className="flex-1 min-h-[220px] flex flex-col relative pt-6 px-2">
+                {!hasChartData && (
+                  <p className="absolute inset-x-0 top-1/3 z-20 text-center text-xs font-semibold text-muted-foreground">
+                    Aucune vente sur cette période
+                  </p>
+                )}
+
+                <div className="absolute inset-0 flex flex-col justify-between pointer-events-none text-[10px] text-muted-foreground/40 font-medium pb-10">
+                  {yAxisTicks.map((tick, i) => (
+                    <div
+                      key={i}
+                      className={`w-full text-right ${i < yAxisTicks.length - 1 ? 'border-b border-border/50 pb-1' : ''}`}
+                    >
+                      {formatChartAxisValue(tick)}
+                    </div>
+                  ))}
                 </div>
 
-                {/* Custom SVG Line path */}
-                <svg className="absolute inset-0 w-full h-[85%] mt-4 overflow-visible" preserveAspectRatio="none">
+                <svg
+                  className="absolute inset-0 w-full h-[85%] mt-4 overflow-visible"
+                  viewBox="0 0 640 200"
+                  preserveAspectRatio="none"
+                >
                   <defs>
                     <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor="currentColor" stopOpacity="0.2" className="text-blue-600 dark:text-blue-400" />
                       <stop offset="100%" stopColor="currentColor" stopOpacity="0.0" className="text-blue-600 dark:text-blue-400" />
                     </linearGradient>
                   </defs>
-                  <path
-                    d="M 20 180 Q 80 120 140 140 T 260 60 T 380 90 T 500 40 T 620 20"
-                    fill="none"
-                    className="stroke-blue-600 dark:stroke-blue-400"
-                    strokeWidth="3.5"
-                    strokeLinecap="round"
-                  />
-                  <path
-                    d="M 20 180 Q 80 120 140 140 T 260 60 T 380 90 T 500 40 T 620 20 L 620 200 L 20 200 Z"
-                    fill="url(#chartGradient)"
-                  />
-                  <circle cx="260" cy="60" r="5" className="fill-blue-600 dark:fill-blue-400" style={{ stroke: 'var(--color-card)' }} strokeWidth="2" />
-                  <circle cx="500" cy="40" r="5" className="fill-blue-600 dark:fill-blue-400" style={{ stroke: 'var(--color-card)' }} strokeWidth="2" />
-                  <circle cx="620" cy="20" r="5" className="fill-blue-600 dark:fill-blue-400" style={{ stroke: 'var(--color-card)' }} strokeWidth="2" />
+                  {chartPaths.linePath && (
+                    <>
+                      <path
+                        d={chartPaths.linePath}
+                        fill="none"
+                        className="stroke-blue-600 dark:stroke-blue-400"
+                        strokeWidth="3.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        vectorEffect="non-scaling-stroke"
+                      />
+                      <path d={chartPaths.areaPath} fill="url(#chartGradient)" />
+                      {hasChartData &&
+                        chartPaths.points.map((p, i) => (
+                          <circle
+                            key={i}
+                            cx={p.x}
+                            cy={p.y}
+                            r="5"
+                            className="fill-blue-600 dark:fill-blue-400"
+                            style={{ stroke: 'var(--color-card)' }}
+                            strokeWidth="2"
+                            vectorEffect="non-scaling-stroke"
+                          />
+                        ))}
+                    </>
+                  )}
                 </svg>
 
-                {/* X Axis Labels */}
-                <div className="w-full flex justify-between text-[11px] font-bold text-muted-foreground pt-4 border-t border-border mt-auto z-10">
-                  <span>Lun</span>
-                  <span>Mar</span>
-                  <span>Mer</span>
-                  <span>Jeu</span>
-                  <span>Ven</span>
-                  <span>Sam</span>
-                  <span>Dim</span>
+                <div className="w-full flex justify-between text-[11px] font-bold text-muted-foreground pt-4 border-t border-border mt-auto z-10 gap-1">
+                  {chartSeries.labels.map((label) => (
+                    <span key={label} className="truncate text-center flex-1 min-w-0">
+                      {label}
+                    </span>
+                  ))}
                 </div>
               </div>
             </div>

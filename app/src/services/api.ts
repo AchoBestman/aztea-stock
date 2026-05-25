@@ -14,6 +14,19 @@ export class ApiError extends Error {
   }
 }
 
+export interface UserProfileTenant {
+  name: string;
+  email: string;
+  phone: string | null;
+  country: string | null;
+  address: string | null;
+  business_type: string;
+  logo_url: string | null;
+  created_at: string;
+  is_active: boolean | null;
+}
+
+/** Profil renvoyé par POST /auth/login */
 export interface UserProfile {
   id: string;
   name: string;
@@ -21,8 +34,19 @@ export interface UserProfile {
   role: string;
   tenant_id: string;
   tenant_name: string;
+  tenant?: UserProfileTenant;
   roles: string[];
   permissions: string[];
+}
+
+/** Profil renvoyé par GET /auth/profile */
+export interface AuthProfileResponse {
+  id: string;
+  name: string;
+  email: string;
+  is_active: boolean | null;
+  two_factor_enabled: boolean;
+  tenant: UserProfileTenant;
 }
 
 export interface LoginResponse {
@@ -344,7 +368,7 @@ export const api = {
         body: JSON.stringify({ email, password }),
       }),
     
-    getProfile: () => request<UserProfile>('/auth/profile'),
+    getProfile: () => request<AuthProfileResponse>('/auth/profile'),
 
     forgotPassword: (email: string) =>
       request<{ success: boolean; message: string }>('/auth/forgot-password', {

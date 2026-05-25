@@ -10,7 +10,7 @@ use std::sync::Arc;
 use utoipa::ToSchema;
 
 use crate::AppState;
-use crate::dtos::user_dto::{UpdateProfilePayload, UserProfileResponse};
+use crate::dtos::user_dto::{UpdateProfilePayload, UserProfileResponse, UserProfileTenantResponse};
 use crate::errors::ApiError;
 use crate::middleware::auth::Claims;
 use crate::models::{permission, role, role_permission, tenant, user, user_role};
@@ -44,6 +44,7 @@ pub struct UserProfile {
     pub role: String, // Comma-separated list of roles
     pub tenant_id: String,
     pub tenant_name: String,
+    pub tenant: UserProfileTenantResponse,
     pub roles: Vec<String>,
     pub permissions: Vec<String>,
 }
@@ -139,6 +140,7 @@ async fn generate_login_response(
             role: role_str,
             tenant_id: tenant_model.id.clone(),
             tenant_name: tenant_model.name.clone(),
+            tenant: UserProfileTenantResponse::from_tenant(tenant_model),
             roles: role_names,
             permissions: perm_names,
         }),

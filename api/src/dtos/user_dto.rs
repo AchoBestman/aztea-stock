@@ -65,8 +65,25 @@ pub struct UserProfileTenantResponse {
     pub country: Option<String>,
     pub address: Option<String>,
     pub business_type: String,
+    pub logo_url: Option<String>,
     pub created_at: String,
     pub is_active: Option<bool>,
+}
+
+impl UserProfileTenantResponse {
+    pub fn from_tenant(tenant: &crate::models::tenant::Model) -> Self {
+        Self {
+            name: tenant.name.clone(),
+            email: tenant.email.clone(),
+            phone: tenant.phone.clone(),
+            country: tenant.country.clone(),
+            address: tenant.address.clone(),
+            business_type: tenant.business_type.clone(),
+            logo_url: tenant.logo_url.clone(),
+            created_at: tenant.created_at.to_rfc3339(),
+            is_active: tenant.is_active,
+        }
+    }
 }
 
 #[derive(Serialize, ToSchema, Clone, Debug)]

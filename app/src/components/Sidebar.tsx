@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useSyncStore } from '../store/syncStore';
+import { getBusinessTypeLabel } from '../lib/format';
 import clsx from 'clsx';
 
 export default function Sidebar() {
@@ -35,15 +36,29 @@ export default function Sidebar() {
 
   return (
     <aside className="w-64 bg-sidebar border-r border-sidebar-border flex flex-col h-screen select-none">
-      {/* Brand Header */}
+      {/* Brand Header — tenant */}
       <div className="p-6 border-b border-sidebar-border flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-brand-gradient flex items-center justify-center shadow-lg transform rotate-3">
-            <span className="text-white font-extrabold text-xl tracking-tight">A</span>
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-xl bg-brand-gradient flex items-center justify-center shadow-lg shrink-0 overflow-hidden">
+            {user?.tenantLogoUrl ? (
+              <img
+                src={user.tenantLogoUrl}
+                alt=""
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <span className="text-white font-extrabold text-xl tracking-tight">
+                {(user?.tenantName ?? 'A').charAt(0).toUpperCase()}
+              </span>
+            )}
           </div>
-          <div>
-            <h1 className="font-bold text-lg text-foreground tracking-tight">AzteaStock</h1>
-            <span className="text-xs text-muted-foreground font-medium">Desktop POS</span>
+          <div className="min-w-0">
+            <h1 className="font-bold text-lg text-foreground tracking-tight truncate">
+              {user?.tenantName ?? 'Établissement'}
+            </h1>
+            <span className="text-xs text-muted-foreground font-medium">
+              {getBusinessTypeLabel(user?.tenantBusinessType ?? 'pharmacy')}
+            </span>
           </div>
         </div>
       </div>
