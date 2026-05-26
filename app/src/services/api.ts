@@ -47,6 +47,8 @@ export interface AuthProfileResponse {
   is_active: boolean | null;
   two_factor_enabled: boolean;
   tenant: UserProfileTenant;
+  roles: string[];
+  permissions: string[];
 }
 
 export interface LoginResponse {

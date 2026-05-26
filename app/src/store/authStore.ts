@@ -13,6 +13,8 @@ export interface User {
 
 interface AuthState {
   user: User | null;
+  permissions: string[];
+  roles: string[];
   licenseKey: string | null;
   licenseStatus: 'active' | 'trial' | 'expired' | 'suspended' | 'revoked';
   trialDaysLeft: number;
@@ -45,45 +47,70 @@ const mapProfileToUser = (profile: UserProfile): User => {
   };
 };
 
-const savedToken = localStorage.getItem('aztea_access_token');
-const savedUser = localStorage.getItem('aztea_user');
-let initialUser: User | null = null;
-let initialIsAuthenticated = false;
-
-if (savedToken && savedUser) {
+function readStoredAuth(): {
+  user: User | null;
+  permissions: string[];
+  roles: string[];
+  isAuthenticated: boolean;
+} {
+  const savedToken = localStorage.getItem('aztea_access_token');
+  const savedUser = localStorage.getItem('aztea_user');
+  if (!savedToken || !savedUser) {
+    return { user: null, permissions: [], roles: [], isAuthenticated: false };
+  }
   try {
-    initialUser = mapProfileToUser(JSON.parse(savedUser));
-    initialIsAuthenticated = true;
+    const profile = JSON.parse(savedUser) as UserProfile;
+    return {
+      user: mapProfileToUser(profile),
+      permissions: profile.permissions ?? [],
+      roles: profile.roles ?? [],
+      isAuthenticated: true,
+    };
   } catch (e) {
     console.error('Failed to parse saved user', e);
+    return { user: null, permissions: [], roles: [], isAuthenticated: false };
   }
 }
+
+const initialAuth = readStoredAuth();
 
 export const useAuthStore = create<AuthState>((set, get) => {
   // Listen to logout events triggered by API client on 401 errors
   window.addEventListener('auth-logout', () => {
-    set({ user: null, isAuthenticated: false, licenseKey: null });
+    set({
+      user: null,
+      permissions: [],
+      roles: [],
+      isAuthenticated: false,
+      licenseKey: null,
+    });
   });
 
+  const applyUserProfile = (profile: UserProfile) => {
+    localStorage.setItem('aztea_user', JSON.stringify(profile));
+    set({
+      user: mapProfileToUser(profile),
+      permissions: profile.permissions ?? [],
+      roles: profile.roles ?? [],
+    });
+  };
+
   return {
-    user: initialUser,
+    user: initialAuth.user,
+    permissions: initialAuth.permissions,
+    roles: initialAuth.roles,
     licenseKey: localStorage.getItem('aztea_license_key') || null,
     licenseStatus: (localStorage.getItem('aztea_license_status') as any) || 'active',
     trialDaysLeft: parseInt(localStorage.getItem('aztea_trial_days') || '14', 10),
-    isAuthenticated: initialIsAuthenticated,
+    isAuthenticated: initialAuth.isAuthenticated,
 
     login: async (email, password) => {
       try {
         const response = await api.auth.login(email, password);
         if (response.access_token && response.user) {
           localStorage.setItem('aztea_access_token', response.access_token);
-          localStorage.setItem('aztea_user', JSON.stringify(response.user));
-          
-          const mappedUser = mapProfileToUser(response.user);
-          set({
-            user: mappedUser,
-            isAuthenticated: true,
-          });
+          applyUserProfile(response.user);
+          set({ isAuthenticated: true });
 
           // Fetch license status directly after login
           await get().checkLicenseStatus();
@@ -102,7 +129,13 @@ export const useAuthStore = create<AuthState>((set, get) => {
       localStorage.removeItem('aztea_license_key');
       localStorage.removeItem('aztea_license_status');
       localStorage.removeItem('aztea_trial_days');
-      set({ user: null, isAuthenticated: false, licenseKey: null });
+      set({
+        user: null,
+        permissions: [],
+        roles: [],
+        isAuthenticated: false,
+        licenseKey: null,
+      });
     },
 
     hydrateSession: async () => {
@@ -115,11 +148,15 @@ export const useAuthStore = create<AuthState>((set, get) => {
         const profile = await api.auth.getProfile();
         const merged: UserProfile = {
           ...stored,
+          id: profile.id,
+          name: profile.name,
+          email: profile.email,
           tenant: profile.tenant,
           tenant_name: profile.tenant.name,
+          roles: profile.roles,
+          permissions: profile.permissions,
         };
-        localStorage.setItem('aztea_user', JSON.stringify(merged));
-        set({ user: mapProfileToUser(merged) });
+        applyUserProfile(merged);
       } catch (error) {
         console.error('Failed to hydrate session:', error);
       }

@@ -3,8 +3,13 @@ import { Plus, Shield, Check, Trash2 } from 'lucide-react';
 import { api, Role, GroupedPermission } from '../services/api';
 import { toast } from 'react-hot-toast';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { usePermissions } from '../hooks/usePermissions';
 
 export default function Roles() {
+  const { has } = usePermissions();
+  const canCreateRole = has('can_create_role');
+  const canUpdateRole = has('can_update_role');
+  const canDeleteRole = has('can_delete_role');
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -142,13 +147,15 @@ export default function Roles() {
           <h1 className="text-3xl font-bold text-foreground">Rôles & Permissions</h1>
           <p className="text-muted-foreground mt-1">Gérez les rôles et attribuez des permissions spécifiques.</p>
         </div>
-        <button 
-          onClick={() => setIsCreateModalOpen(true)}
-          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs shadow-md transition-all bg-primary dark:bg-blue-600 text-primary-foreground hover:bg-opacity-95 cursor-pointer"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Nouveau Rôle</span>
-        </button>
+        {canCreateRole && (
+          <button 
+            onClick={() => setIsCreateModalOpen(true)}
+            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs shadow-md transition-all bg-primary dark:bg-blue-600 text-primary-foreground hover:bg-opacity-95 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Nouveau Rôle</span>
+          </button>
+        )}
       </div>
 
       <div className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden flex flex-col">
@@ -185,13 +192,15 @@ export default function Roles() {
                     <td className="py-4 px-4 text-muted-foreground font-semibold">{role.description || '-'}</td>
                     <td className="py-4 px-6 text-right">
                       <div className="flex items-center justify-end gap-3">
-                        <button
-                          onClick={() => openPermissionsModal(role)}
-                          className="text-xs font-bold text-primary dark:text-blue-400 hover:underline cursor-pointer"
-                        >
-                          Permissions
-                        </button>
-                        {role.name !== 'Super Admin' && (
+                        {canUpdateRole && (
+                          <button
+                            onClick={() => openPermissionsModal(role)}
+                            className="text-xs font-bold text-primary dark:text-blue-400 hover:underline cursor-pointer"
+                          >
+                            Permissions
+                          </button>
+                        )}
+                        {canDeleteRole && role.name !== 'Super Admin' && (
                           <button
                             onClick={() => confirmDeleteRole(role)}
                             className="p-1.5 text-rose-500 hover:bg-rose-500/10 rounded-lg transition-colors cursor-pointer"

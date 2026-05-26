@@ -17,6 +17,7 @@ import {
   Camera
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
+import { usePermissions } from '../hooks/usePermissions';
 import { api, Sale, Category } from '../services/api';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { CameraBarcodeScanner } from '../components/CameraBarcodeScanner';
@@ -46,6 +47,9 @@ type BarcodeErrorReason = 'not_found' | 'out_of_stock' | 'insufficient_stock';
 
 export default function POS() {
   const { user } = useAuthStore();
+  const { has } = usePermissions();
+  const canCreateSale = has('can_create_sale');
+  const canPrintReceipt = has('can_print_sale_receipt');
   
   const [products, setProducts] = useState<POSProduct[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -412,6 +416,14 @@ export default function POS() {
   const isPaymentValid = paymentMethod !== 'cash' || (numericAmountReceived >= total && numericAmountReceived > 0);
 
   const handleCheckout = async (withPrint: boolean) => {
+    if (!canCreateSale) {
+      notify("Vous n'avez pas la permission d'enregistrer des ventes.", 'error');
+      return;
+    }
+    if (withPrint && !canPrintReceipt) {
+      notify("Vous n'avez pas la permission d'imprimer un ticket.", 'error');
+      return;
+    }
     if (cart.length === 0 || isSubmitting) return;
 
     if (paymentMethod === 'cash' && numericAmountReceived < total) {
@@ -854,9 +866,14 @@ export default function POS() {
 
           {/* Checkout CTAs */}
           <div className="flex flex-col gap-2">
+            {!canCreateSale && (
+              <p className="text-[11px] text-rose-500 font-semibold text-center">
+                Permission « ventes » requise pour valider une commande.
+              </p>
+            )}
             <button
               onClick={() => handleCheckout(true)}
-              disabled={cart.length === 0 || isSubmitting || !isPaymentValid}
+              disabled={!canCreateSale || !canPrintReceipt || cart.length === 0 || isSubmitting || !isPaymentValid}
               className={`py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all ${
                 cart.length === 0 || isSubmitting || !isPaymentValid
                   ? 'bg-muted text-muted-foreground cursor-not-allowed shadow-none'
@@ -868,7 +885,7 @@ export default function POS() {
             </button>
             <button
               onClick={() => handleCheckout(false)}
-              disabled={cart.length === 0 || isSubmitting || !isPaymentValid}
+              disabled={!canCreateSale || cart.length === 0 || isSubmitting || !isPaymentValid}
               className={`py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer shadow-sm transition-all border border-border ${
                 cart.length === 0 || isSubmitting || !isPaymentValid
                   ? 'bg-muted/50 text-muted-foreground cursor-not-allowed shadow-none'

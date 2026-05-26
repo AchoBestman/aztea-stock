@@ -4,7 +4,7 @@ import {
   ChevronLeft, ChevronRight, Filter, Receipt
 } from 'lucide-react';
 import { api, Sale, TenantResponse } from '../services/api';
-import { useAuthStore } from '../store/authStore';
+import { usePermissions } from '../hooks/usePermissions';
 import { getTicketPrinterConfig, isTauriApp } from '../utils/hardwareConfig';
 import {
   computeReceiptTotals,
@@ -15,16 +15,12 @@ import { printReportHtml, printTicketFromSale } from '../utils/printService';
 import toast from 'react-hot-toast';
 
 export default function SalesHistory() {
-  const { user } = useAuthStore();
-  const isSystem = !!user && (user.role === 'Super Admin' || user.role === 'admin');
-
-  // Permissions from localStorage user profile
-  const storedUser = localStorage.getItem('aztea_user');
-  const permissions: string[] = storedUser ? (JSON.parse(storedUser).permissions || []) : [];
-  const canRead = permissions.includes('can_read_sale') || user?.role === 'Super Admin';
-  const canExportPdf = permissions.includes('can_export_sale_pdf') || user?.role === 'Super Admin';
-  const canExportExcel = permissions.includes('can_export_sale_excel') || user?.role === 'Super Admin';
-  const canPrint = permissions.includes('can_print_sale_receipt') || user?.role === 'Super Admin';
+  const { has, isSuperAdmin } = usePermissions();
+  const isSystem = isSuperAdmin || has('can_access_other_tenant_for_edition');
+  const canRead = has('can_read_sale');
+  const canExportPdf = has('can_export_sale_pdf');
+  const canExportExcel = has('can_export_sale_excel');
+  const canPrint = has('can_print_sale_receipt');
 
   const [sales, setSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);

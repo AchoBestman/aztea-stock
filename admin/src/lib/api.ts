@@ -211,9 +211,11 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   if (!response.ok) {
     if (response.status === 401) clearSession();
     const body = await response.json().catch(() => ({}));
+    const errPayload = (body as { error?: { message?: string } | string }).error;
     const message =
+      (typeof errPayload === "object" && errPayload?.message) ||
+      (typeof errPayload === "string" ? errPayload : undefined) ||
       (body as { message?: string }).message ||
-      (body as { error?: string }).error ||
       response.statusText;
     throw new ApiError(message, response.status);
   }

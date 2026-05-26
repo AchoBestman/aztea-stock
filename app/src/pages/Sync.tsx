@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react';
 import { RefreshCw, CheckCircle2, AlertCircle, Clock, Upload, Plus, Edit2, Trash2 } from 'lucide-react';
 import { useSyncStore } from '../store/syncStore';
+import { usePermissions } from '../hooks/usePermissions';
 import { api, SyncLog } from '../services/api';
 
 export default function Sync() {
+  const { has } = usePermissions();
+  const canManageSync = has('can_manage_sync_log');
   const { isOnline, isSyncing, pendingActions, sync, lastSyncAt } = useSyncStore();
   const pendingCount = pendingActions.length;
   const [logs, setLogs] = useState<SyncLog[]>([]);
@@ -75,12 +78,17 @@ export default function Sync() {
             <h3 className="text-sm font-semibold text-muted-foreground mb-4">Action</h3>
             <button
               onClick={handleSync}
-              disabled={isSyncing || pendingCount === 0 || !isOnline}
+              disabled={!canManageSync || isSyncing || pendingCount === 0 || !isOnline}
               className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-primary text-primary-foreground rounded-lg font-semibold shadow hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <RefreshCw className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`} />
               {isSyncing ? 'Synchronisation...' : 'Lancer la synchronisation'}
             </button>
+            {!canManageSync && (
+              <p className="text-xs text-amber-600 dark:text-amber-400 mt-3 text-center font-medium">
+                Permission « can_manage_sync_log » requise pour synchroniser.
+              </p>
+            )}
             {lastSyncAt && (
               <p className="text-xs text-muted-foreground mt-3 text-center">
                 Dernière synchro : {lastSyncAt.toLocaleString()}

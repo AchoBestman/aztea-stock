@@ -1,6 +1,7 @@
 import { HashRouter as Router, Routes, Route } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import Layout from './components/Layout';
+import RequirePermission from './components/RequirePermission';
 import Dashboard from './pages/Dashboard';
 import POS from './pages/POS';
 import Stock from './pages/Stock';
@@ -42,17 +43,17 @@ function App() {
 
         {/* Authenticated Dashboard / Layout Wrapper */}
         <Route path="/" element={<Layout />}>
-          <Route index element={<Dashboard />} />
-          <Route path="pos" element={<POS />} />
-          <Route path="stock" element={<Stock />} />
-          <Route path="products" element={<Products />} />
-          <Route path="categories" element={<Categories />} />
-          <Route path="reports" element={<Reports />} />
-          <Route path="settings" element={<Settings />} />
-          <Route path="users" element={<Users />} />
-          <Route path="roles" element={<Roles />} />
-          <Route path="sync" element={<Sync />} />
-          <Route path="sales-history" element={<SalesHistory />} />
+          <Route index element={<RequirePermission path="/"><Dashboard /></RequirePermission>} />
+          <Route path="pos" element={<RequirePermission path="/pos"><POS /></RequirePermission>} />
+          <Route path="stock" element={<RequirePermission path="/stock"><Stock /></RequirePermission>} />
+          <Route path="products" element={<RequirePermission path="/products"><Products /></RequirePermission>} />
+          <Route path="categories" element={<RequirePermission path="/categories"><Categories /></RequirePermission>} />
+          <Route path="reports" element={<RequirePermission path="/reports"><Reports /></RequirePermission>} />
+          <Route path="settings" element={<RequirePermission path="/settings"><Settings /></RequirePermission>} />
+          <Route path="users" element={<RequirePermission path="/users"><Users /></RequirePermission>} />
+          <Route path="roles" element={<RequirePermission path="/roles"><Roles /></RequirePermission>} />
+          <Route path="sync" element={<RequirePermission path="/sync"><Sync /></RequirePermission>} />
+          <Route path="sales-history" element={<RequirePermission path="/sales-history"><SalesHistory /></RequirePermission>} />
         </Route>
       </Routes>
       </Router>

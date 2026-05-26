@@ -3,8 +3,13 @@ import { Plus, Search, Trash2, User, ShieldCheck, ShieldOff, ToggleLeft, ToggleR
 import { api, AdminUser, Role } from '../services/api';
 import { toast } from 'react-hot-toast';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { usePermissions } from '../hooks/usePermissions';
 
 export default function Users() {
+  const { hasAny } = usePermissions();
+  const canCreateUser = hasAny('can_create_user', 'can_manage_tenant_users');
+  const canDeleteUser = hasAny('can_delete_user', 'can_manage_tenant_users');
+  const canUpdateStatus = hasAny('can_update_user_status', 'can_manage_tenant_users');
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
@@ -137,13 +142,15 @@ export default function Users() {
           />
         </div>
 
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs shadow-md transition-all bg-primary dark:bg-blue-600 text-primary-foreground hover:bg-opacity-95 cursor-pointer"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Nouvel Utilisateur</span>
-        </button>
+        {canCreateUser && (
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs shadow-md transition-all bg-primary dark:bg-blue-600 text-primary-foreground hover:bg-opacity-95 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Nouvel Utilisateur</span>
+          </button>
+        )}
       </div>
 
       <div className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden flex flex-col">
@@ -186,6 +193,7 @@ export default function Users() {
                       </div>
                     </td>
                     <td className="py-4 px-4 text-center">
+                      {canUpdateStatus ? (
                       <button
                         onClick={() => handleToggleActive(user)}
                         title={user.is_active ? 'Désactiver' : 'Activer'}
@@ -201,6 +209,11 @@ export default function Users() {
                           </span>
                         )}
                       </button>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground font-medium">
+                          {user.is_active ? 'Actif' : 'Inactif'}
+                        </span>
+                      )}
                     </td>
                     <td className="py-4 px-4 text-center">
                       <button
@@ -220,13 +233,15 @@ export default function Users() {
                       </button>
                     </td>
                     <td className="py-4 px-6 text-right">
-                      <button
-                        onClick={() => confirmDeleteUser(user)}
-                        className="p-1.5 text-rose-500 hover:bg-rose-500/10 rounded-lg transition-colors cursor-pointer"
-                        title="Supprimer l'utilisateur"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {canDeleteUser && (
+                        <button
+                          onClick={() => confirmDeleteUser(user)}
+                          className="p-1.5 text-rose-500 hover:bg-rose-500/10 rounded-lg transition-colors cursor-pointer"
+                          title="Supprimer l'utilisateur"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))

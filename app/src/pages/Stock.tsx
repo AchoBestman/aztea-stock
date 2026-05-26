@@ -4,8 +4,11 @@ import {
   Download
 } from 'lucide-react';
 import { api, StockItem, Category } from '../services/api';
+import { usePermissions } from '../hooks/usePermissions';
 
 export default function Stock() {
+  const { has } = usePermissions();
+  const canManageStock = has('can_manage_stock');
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [search, setSearch] = useState('');
@@ -236,18 +239,24 @@ export default function Stock() {
                           {new Date(item.updated_at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}
                         </td>
                         <td className="py-4 px-6 text-right space-x-1.5">
-                          <button
-                            onClick={() => setAdjustmentModal({ open: true, item, qty: '', reason: '', type: 'add' })}
-                            className="px-2 py-1 bg-emerald-500/10 hover:bg-emerald-500 hover:text-white rounded-lg text-emerald-600 text-[10px] font-bold transition-all cursor-pointer"
-                          >
-                            Ajuster (+)
-                          </button>
-                          <button
-                            onClick={() => setAdjustmentModal({ open: true, item, qty: '', reason: '', type: 'remove' })}
-                            className="px-2 py-1 bg-rose-500/10 hover:bg-rose-500 hover:text-white rounded-lg text-rose-600 text-[10px] font-bold transition-all cursor-pointer"
-                          >
-                            Ajuster (-)
-                          </button>
+                          {canManageStock ? (
+                            <>
+                              <button
+                                onClick={() => setAdjustmentModal({ open: true, item, qty: '', reason: '', type: 'add' })}
+                                className="px-2 py-1 bg-emerald-500/10 hover:bg-emerald-500 hover:text-white rounded-lg text-emerald-600 text-[10px] font-bold transition-all cursor-pointer"
+                              >
+                                Ajuster (+)
+                              </button>
+                              <button
+                                onClick={() => setAdjustmentModal({ open: true, item, qty: '', reason: '', type: 'remove' })}
+                                className="px-2 py-1 bg-rose-500/10 hover:bg-rose-500 hover:text-white rounded-lg text-rose-600 text-[10px] font-bold transition-all cursor-pointer"
+                              >
+                                Ajuster (-)
+                              </button>
+                            </>
+                          ) : (
+                            <span className="text-[10px] text-muted-foreground font-medium">Lecture seule</span>
+                          )}
                         </td>
                       </tr>
                     );

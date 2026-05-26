@@ -9,13 +9,14 @@ import {
   PackageCheck
 } from 'lucide-react';
 import { api, Category, Product } from '../services/api';
-import { useAuthStore } from '../store/authStore';
+import { usePermissions } from '../hooks/usePermissions';
 import { toast } from 'react-hot-toast';
 import { ConfirmModal } from '../components/ConfirmModal';
 
 export default function Products() {
-  const { user } = useAuthStore();
-  const isCashier = user?.role === 'cashier';
+  const { canManageProduct, has } = usePermissions();
+  const canEdit = canManageProduct();
+  const canRead = has('can_read_product');
 
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -53,7 +54,7 @@ export default function Products() {
       let fetchedCategories = catRes.data || [];
       
       // Auto seed default categories if database is completely empty
-      if (fetchedCategories.length === 0 && !isCashier) {
+      if (fetchedCategories.length === 0 && canEdit) {
         const defaults = ["Pharmacie", "Alimentation", "Hygiène"];
         await Promise.all(defaults.map(name => api.categories.create(name)));
         const reloadedCats = await api.categories.list('', 1, 1000);
@@ -80,7 +81,7 @@ export default function Products() {
 
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isCashier) return;
+    if (!canEdit) return;
     if (!newProduct.name.trim() || !newProduct.barcode.trim()) return;
 
     try {
@@ -121,7 +122,7 @@ export default function Products() {
 
   const handleEditProduct = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isCashier || !editingProduct) return;
+    if (!canEdit || !editingProduct) return;
 
     try {
       await api.products.update(editingProduct.id, {
@@ -143,7 +144,7 @@ export default function Products() {
   };
 
   const confirmDeleteProduct = (prod: Product) => {
-    if (isCashier) return;
+    if (!canEdit) return;
     setProductToDelete(prod);
     setDeleteModalOpen(true);
   };
@@ -198,9 +199,9 @@ export default function Products() {
 
           <button
             onClick={() => setIsAddModalOpen(true)}
-            disabled={isCashier}
+            disabled={!canEdit}
             className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs shadow-md transition-all ${
-              isCashier
+              !canEdit
                 ? 'bg-muted text-muted-foreground cursor-not-allowed opacity-60'
                 : 'bg-primary dark:bg-blue-600 text-primary-foreground hover:bg-opacity-95 cursor-pointer'
             }`}
@@ -211,10 +212,10 @@ export default function Products() {
         </div>
       </div>
 
-      {isCashier && (
+      {canRead && !canEdit && (
         <div className="p-3.5 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 text-xs font-semibold flex items-center gap-2">
           <AlertCircle className="w-4 h-4" />
-          <span>Mode Lecture Seule : votre compte caissier ne possède pas les permissions de modification du catalogue produits.</span>
+          <span>Mode lecture seule : vous n&apos;avez pas la permission de modifier le catalogue produits.</span>
         </div>
       )}
 
@@ -276,9 +277,9 @@ export default function Products() {
                         <div className="flex justify-end gap-1.5">
                           <button
                             onClick={() => setEditingProduct(prod)}
-                            disabled={isCashier}
+                            disabled={!canEdit}
                             className={`w-7 h-7 rounded-lg border flex items-center justify-center transition-colors ${
-                              isCashier
+                              !canEdit
                                 ? 'border-border text-muted-foreground/40 cursor-not-allowed'
                                 : 'border-border hover:bg-accent text-foreground cursor-pointer'
                             }`}
@@ -288,9 +289,9 @@ export default function Products() {
                           </button>
                           <button
                             onClick={() => confirmDeleteProduct(prod)}
-                            disabled={isCashier}
+                            disabled={!canEdit}
                             className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
-                              isCashier
+                              !canEdit
                                 ? 'bg-muted text-muted-foreground/30 cursor-not-allowed'
                                 : 'bg-rose-500/10 hover:bg-rose-500 hover:text-white text-rose-500 cursor-pointer'
                             }`}

@@ -12,8 +12,12 @@ import { api, Sale, Product, StockItem } from '../services/api';
 import { stripTailwindFromHtml, wrapPdfDocument } from '../utils/pdfExport';
 import { printReportHtml } from '../utils/printService';
 import toast from 'react-hot-toast';
+import { usePermissions } from '../hooks/usePermissions';
 
 export default function Reports() {
+  const { has } = usePermissions();
+  const canExportPdf = has('can_export_sale_pdf');
+  const canExportExcel = has('can_export_sale_excel');
   const [range, setRange] = useState<'30' | '90' | '365' | 'custom'>('30');
   
   // Custom date range states
@@ -228,6 +232,10 @@ export default function Reports() {
 
   // Export to CSV
   const handleExportCSV = () => {
+    if (!canExportExcel) {
+      toast.error("Vous n'avez pas la permission d'exporter en CSV/Excel.");
+      return;
+    }
     const headers = ['Facture', 'Date', 'Client', 'Total Revenue', 'Cost', 'Profit', 'Mode Paiement'];
     const rows = filteredSales.map(sale => {
       let saleCost = 0;
@@ -261,6 +269,10 @@ export default function Reports() {
   const [exportingPdf, setExportingPdf] = useState(false);
 
   const handleExportPDF = async () => {
+    if (!canExportPdf) {
+      toast.error("Vous n'avez pas la permission d'exporter en PDF.");
+      return;
+    }
     if (exportingPdf) return;
     setExportingPdf(true);
     const toastId = 'reports-pdf';
@@ -371,14 +383,17 @@ ${stripTailwindFromHtml(root.innerHTML)}`,
             ))}
           </div>
 
-          <button 
-            onClick={handleExportCSV}
-            className="flex items-center gap-1 px-4 py-2 rounded-xl bg-secondary text-foreground text-xs font-bold hover:bg-opacity-95 transition-all shadow-md cursor-pointer border border-border"
-          >
-            <Download className="w-4 h-4" />
-            <span>CSV</span>
-          </button>
+          {canExportExcel && (
+            <button 
+              onClick={handleExportCSV}
+              className="flex items-center gap-1 px-4 py-2 rounded-xl bg-secondary text-foreground text-xs font-bold hover:bg-opacity-95 transition-all shadow-md cursor-pointer border border-border"
+            >
+              <Download className="w-4 h-4" />
+              <span>CSV</span>
+            </button>
+          )}
 
+          {canExportPdf && (
           <button 
             onClick={handleExportPDF}
             disabled={exportingPdf}
@@ -387,6 +402,7 @@ ${stripTailwindFromHtml(root.innerHTML)}`,
             <FileText className="w-4 h-4" />
             <span>{exportingPdf ? 'Génération…' : 'Exporter PDF'}</span>
           </button>
+          )}
         </div>
       </div>
 

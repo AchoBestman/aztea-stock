@@ -8,13 +8,18 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { api, Category, Product } from '../services/api';
-import { useAuthStore } from '../store/authStore';
+import { usePermissions } from '../hooks/usePermissions';
 import { toast } from 'react-hot-toast';
 import { ConfirmModal } from '../components/ConfirmModal';
 
 export default function Categories() {
-  const { user } = useAuthStore();
-  const isCashier = user?.role === 'cashier';
+  const { hasAny, has } = usePermissions();
+  const canEdit = hasAny(
+    'can_create_category',
+    'can_update_category',
+    'can_delete_category'
+  );
+  const canRead = has('can_read_category');
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -54,7 +59,7 @@ export default function Categories() {
 
   const handleAddCategory = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isCashier) return;
+    if (!canEdit) return;
     if (!newCat.name.trim()) return;
 
     try {
@@ -71,7 +76,7 @@ export default function Categories() {
 
   const handleEditCategory = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isCashier || !editingCategory) return;
+    if (!canEdit || !editingCategory) return;
 
     try {
       await api.categories.update(
@@ -89,7 +94,7 @@ export default function Categories() {
   };
 
   const confirmDeleteCategory = (cat: Category) => {
-    if (isCashier) return;
+    if (!canEdit) return;
     setCategoryToDelete(cat);
     setDeleteModalOpen(true);
   };
@@ -136,9 +141,9 @@ export default function Categories() {
 
         <button
           onClick={() => setIsAddModalOpen(true)}
-          disabled={isCashier}
+          disabled={!canEdit}
           className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs shadow-md transition-all ${
-            isCashier
+            !canEdit
               ? 'bg-muted text-muted-foreground cursor-not-allowed opacity-60'
               : 'bg-primary dark:bg-blue-600 text-primary-foreground hover:bg-opacity-95 cursor-pointer'
           }`}
@@ -148,10 +153,10 @@ export default function Categories() {
         </button>
       </div>
 
-      {isCashier && (
+      {canRead && !canEdit && (
         <div className="p-3.5 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 text-xs font-semibold flex items-center gap-2">
           <AlertCircle className="w-4 h-4" />
-          <span>Mode Lecture Seule : votre compte caissier ne possède pas les permissions de modification des catégories.</span>
+          <span>Mode lecture seule : vous n&apos;avez pas la permission de modifier les catégories.</span>
         </div>
       )}
 
@@ -196,9 +201,9 @@ export default function Categories() {
                         <div className="flex justify-end gap-1.5">
                           <button
                             onClick={() => setEditingCategory(cat)}
-                            disabled={isCashier}
+                            disabled={!canEdit}
                             className={`w-7 h-7 rounded-lg border flex items-center justify-center transition-colors ${
-                              isCashier
+                              !canEdit
                                 ? 'border-border text-muted-foreground/40 cursor-not-allowed'
                                 : 'border-border hover:bg-accent text-foreground cursor-pointer'
                             }`}
@@ -208,9 +213,9 @@ export default function Categories() {
                           </button>
                           <button
                             onClick={() => confirmDeleteCategory(cat)}
-                            disabled={isCashier}
+                            disabled={!canEdit}
                             className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
-                              isCashier
+                              !canEdit
                                 ? 'bg-muted text-muted-foreground/30 cursor-not-allowed'
                                 : 'bg-rose-500/10 hover:bg-rose-500 hover:text-white text-rose-500 cursor-pointer'
                             }`}
