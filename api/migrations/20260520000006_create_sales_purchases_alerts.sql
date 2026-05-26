@@ -66,8 +66,8 @@ CREATE TABLE alerts (
     message         TEXT NOT NULL,
     threshold       REAL,
     current_qty     REAL,
-    is_read         BOOLEAN DEFAULT 0,
-    is_resolved     BOOLEAN DEFAULT 0,
+    is_read         BOOLEAN DEFAULT false,
+    is_resolved     BOOLEAN DEFAULT false,
     triggered_at    TEXT NOT NULL
 );
 

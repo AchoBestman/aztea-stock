@@ -1,8 +1,7 @@
--- Fix price_monthly storage type: DECIMAL(NUMERIC affinity) → REAL
--- SQLite's NUMERIC affinity stores whole-number floats (5000.0) as INTEGER,
--- which is incompatible with Rust f64/Decimal decoding via sqlx.
--- Recreating the table with REAL affinity forces float storage always.
+-- Fix price_monthly storage type: DECIMAL → REAL
+-- Pour PostgreSQL
 
+-- Créer la nouvelle table avec REAL
 CREATE TABLE subscriptions_new (
     id VARCHAR(36) PRIMARY KEY,
     tenant_id VARCHAR(36) NOT NULL,
@@ -20,6 +19,7 @@ CREATE TABLE subscriptions_new (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
+-- Copier les données
 INSERT INTO subscriptions_new
 SELECT
     id, tenant_id, plan, status,
@@ -30,5 +30,6 @@ SELECT
     payment_method, notes, created_at
 FROM subscriptions;
 
-DROP TABLE subscriptions;
-ALTER TABLE subscriptions_new RENAME TO subscriptions;
+-- Remplacer l'ancienne table
+DROP TABLE subscriptions CASCADE;
+ALTER TABLE subscriptions_new RENAME TO subscriptions

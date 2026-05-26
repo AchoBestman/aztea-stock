@@ -1,4 +1,5 @@
--- Revert: restore original DECIMAL type (no data loss, just affinity change)
+-- Revert: restore original DECIMAL type
+
 CREATE TABLE subscriptions_old (
     id VARCHAR(36) PRIMARY KEY,
     tenant_id VARCHAR(36) NOT NULL,
@@ -17,5 +18,5 @@ CREATE TABLE subscriptions_old (
 );
 
 INSERT INTO subscriptions_old SELECT * FROM subscriptions;
-DROP TABLE subscriptions;
-ALTER TABLE subscriptions_old RENAME TO subscriptions;
+DROP TABLE subscriptions CASCADE;
+ALTER TABLE subscriptions_old RENAME TO subscriptions

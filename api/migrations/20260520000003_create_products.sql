@@ -11,8 +11,8 @@ CREATE TABLE products (
     selling_price   REAL NOT NULL DEFAULT 0.0,
     tax_rate        REAL NOT NULL DEFAULT 0.0, -- Taux de taxe/TVA applicable (ex: 18.0)
     image_url       TEXT,
-    is_active       BOOLEAN NOT NULL DEFAULT 1,
-    requires_prescription BOOLEAN NOT NULL DEFAULT 0,
+    is_active       BOOLEAN NOT NULL DEFAULT true,
+    requires_prescription BOOLEAN NOT NULL DEFAULT false,
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL,
     deleted_at      TEXT,
