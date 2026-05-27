@@ -4,15 +4,15 @@ CREATE TABLE subscriptions (
     tenant_id VARCHAR(36) NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     plan VARCHAR(50) NOT NULL CHECK (plan IN ('starter','pro','enterprise')),
     status VARCHAR(50) NOT NULL CHECK (status IN ('trial','active','suspended','cancelled')),
-    price_monthly DECIMAL(10,2) NOT NULL,
+    price_monthly REAL NOT NULL,
     currency VARCHAR(10) DEFAULT 'XAF',
-    started_at TIMESTAMPTZ NOT NULL,
-    expires_at TIMESTAMPTZ NOT NULL,
-    trial_ends_at TIMESTAMPTZ,
-    cancelled_at TIMESTAMPTZ,
+    started_at TIMESTAMP NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    trial_ends_at TIMESTAMP,
+    cancelled_at TIMESTAMP,
     payment_method VARCHAR(100),
     notes TEXT,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
 CREATE TABLE licenses (
@@ -23,8 +23,8 @@ CREATE TABLE licenses (
     device_name VARCHAR(255),
     device_fingerprint VARCHAR(255),
     is_active BOOLEAN DEFAULT true,
-    last_verified_at TIMESTAMPTZ,
-    activated_at TIMESTAMPTZ,
-    revoked_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL
+    last_verified_at TIMESTAMP,
+    activated_at TIMESTAMP,
+    revoked_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
 );

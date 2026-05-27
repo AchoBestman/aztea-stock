@@ -1,14 +1,14 @@
 CREATE TABLE categories (
-    id          TEXT PRIMARY KEY,
-    tenant_id   TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    name        TEXT NOT NULL,
+    id          VARCHAR(36) PRIMARY KEY,
+    tenant_id   VARCHAR(36) NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    name        VARCHAR(255) NOT NULL,
     description TEXT,
-    color       TEXT,             -- hex color pour l'UI
-    icon        TEXT,
-    parent_id   TEXT REFERENCES categories(id) ON DELETE SET NULL,
-    created_at  TEXT NOT NULL,    -- TIMESTAMPTZ stored as text in sqlite
-    updated_at  TEXT NOT NULL,
-    deleted_at  TEXT              -- soft delete
+    color       VARCHAR(50),             -- hex color pour l'UI
+    icon        VARCHAR(100),
+    parent_id   VARCHAR(36) REFERENCES categories(id) ON DELETE SET NULL,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    deleted_at  TIMESTAMP              -- soft delete
 );
 
 CREATE INDEX idx_categories_tenant_id ON categories(tenant_id);

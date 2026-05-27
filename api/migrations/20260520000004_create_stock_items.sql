@@ -1,14 +1,15 @@
 CREATE TABLE stock_items (
-    id                  TEXT PRIMARY KEY,
-    tenant_id           TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    product_id          TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-    quantity            REAL NOT NULL DEFAULT 0.0,
-    quantity_reserved   REAL NOT NULL DEFAULT 0.0,
+    id                  VARCHAR(36) PRIMARY KEY,
+    tenant_id           VARCHAR(36) NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    product_id          VARCHAR(36) NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    quantity            DECIMAL(10,2) NOT NULL DEFAULT 0.0,
+    reserved_quantity   DECIMAL(10,2) NOT NULL DEFAULT 0.0,
+    unit_cost           DECIMAL(10,2),
     low_stock_threshold REAL NOT NULL DEFAULT 5.0,
-    unit_location       TEXT,
-    batch_number        TEXT,
-    expiry_date         TEXT,
-    updated_at          TEXT NOT NULL,
+    unit_location       VARCHAR(255),
+    batch_number        VARCHAR(100),
+    expiry_date         TIMESTAMP,
+    updated_at          TIMESTAMP NOT NULL,
     CONSTRAINT uniq_tenant_product UNIQUE (tenant_id, product_id)
 );
 

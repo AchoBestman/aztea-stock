@@ -16,7 +16,7 @@ pub async fn create_connection(config: &Config) -> Option<DatabaseConnection> {
         return connect_sqlite(&config.sqlite_database_url).await;
     }
 
-    // 3. Default to PostgreSQL, fall back to SQLite if PostgreSQL is unavailable
+    // 3. Default to PostgreSQL or MySQL, fall back to SQLite if unavailable
     let url = match &config.database_url {
         Some(url) => url,
         None => {
@@ -25,17 +25,20 @@ pub async fn create_connection(config: &Config) -> Option<DatabaseConnection> {
         }
     };
 
+    let is_mysql = url.starts_with("mysql");
+    let db_name = if is_mysql { "MySQL" } else { "PostgreSQL" };
+
     let mut opt = ConnectOptions::new(url.clone());
     opt.max_connections(5)
        .acquire_timeout(Duration::from_secs(3));
 
     match Database::connect(opt).await {
         Ok(conn) => {
-            info!("Successfully connected to PostgreSQL database.");
+            info!("Successfully connected to {} database.", db_name);
             Some(conn)
         }
         Err(e) => {
-            warn!("Failed to connect to PostgreSQL at {}: {}. Falling back to SQLite.", url, e);
+            warn!("Failed to connect to {} at {}: {}. Falling back to SQLite.", db_name, url, e);
             connect_sqlite(&config.sqlite_database_url).await
         }
     }

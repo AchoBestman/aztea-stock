@@ -46,6 +46,9 @@ impl Config {
                 if let Some(ref url) = database_url {
                     if url.starts_with("sqlite:") {
                         "sqlite".to_string()
+                    }
+                    else if url.starts_with("mysql:") {
+                        "mysql".to_string()
                     } else {
                         "postgres".to_string()
                     }

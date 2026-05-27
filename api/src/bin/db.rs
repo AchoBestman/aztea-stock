@@ -9,6 +9,11 @@ mod config;
 async fn create_pool(config: &config::Config) -> Option<AnyPool> {
     let url = if config.offline || config.db_type == "sqlite" {
         &config.sqlite_database_url
+    } else if config.db_type == "mysql" {
+        match &config.database_url {
+            Some(u) => u,
+            None => &config.sqlite_database_url
+        }
     } else {
         match &config.database_url {
             Some(u) => u,
@@ -16,12 +21,18 @@ async fn create_pool(config: &config::Config) -> Option<AnyPool> {
         }
     };
     sqlx::any::install_default_drivers();
-    sqlx::any::AnyPoolOptions::new()
+    match sqlx::any::AnyPoolOptions::new()
         .max_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(3))
+        .acquire_timeout(std::time::Duration::from_secs(30))
         .connect(url)
         .await
-        .ok()
+    {
+        Ok(pool) => Some(pool),
+        Err(e) => {
+            eprintln!("Detailed connection error: {:?}", e);
+            None
+        }
+    }
 }
 
 #[tokio::main]
@@ -140,8 +151,7 @@ async fn run_migrations(pool: &AnyPool) -> Result<(), anyhow::Error> {
 async fn run_rollback(pool: &AnyPool) -> Result<(), anyhow::Error> {
     println!("Undoing the last migration...");
     
-    // Check if the migrations table exists
-    // We check sqlite_master first. If that query fails (which happens on Postgres), we query pg_tables.
+    // We check sqlite_master first. If that query fails, we try pg_tables (Postgres). If that fails, we try information_schema (MySQL).
     let table_exists: bool = match sqlx::query(
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='_sqlx_migrations'"
     ).fetch_one(pool).await {
@@ -150,10 +160,18 @@ async fn run_rollback(pool: &AnyPool) -> Result<(), anyhow::Error> {
             count > 0
         }
         Err(_) => {
-            let row = sqlx::query(
+            match sqlx::query(
                 "SELECT EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = '_sqlx_migrations')"
-            ).fetch_one(pool).await?;
-            row.try_get(0)?
+            ).fetch_one(pool).await {
+                Ok(row) => row.try_get(0)?,
+                Err(_) => {
+                    let row = sqlx::query(
+                        "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = '_sqlx_migrations'"
+                    ).fetch_one(pool).await?;
+                    let count: i64 = row.try_get(0)?;
+                    count > 0
+                }
+            }
         }
     };
     
@@ -213,16 +231,13 @@ async fn run_rollback(pool: &AnyPool) -> Result<(), anyhow::Error> {
 
 async fn run_fresh(pool: &AnyPool, config: &config::Config) -> Result<(), anyhow::Error> {
     let is_sqlite = config.offline || config.db_type == "sqlite" || config.database_url.is_none();
+    let is_mysql = config.db_type == "mysql";
     
-    if !is_sqlite {
-        println!("Dropping and recreating PostgreSQL public schema...");
-        sqlx::query("DROP SCHEMA public CASCADE").execute(pool).await?;
-        sqlx::query("CREATE SCHEMA public").execute(pool).await?;
-        sqlx::query("GRANT ALL ON SCHEMA public TO public").execute(pool).await?;
-    } else {
-        println!("Dropping SQLite database tables...");
+    if is_mysql {
+        println!("Dropping MySQL database tables...");
+        let mut conn = pool.acquire().await?;
         // Disable foreign keys checks
-        sqlx::query("PRAGMA foreign_keys = OFF;").execute(pool).await?;
+        sqlx::query("SET FOREIGN_KEY_CHECKS = 0;").execute(&mut *conn).await?;
         
         let tables_to_drop = vec![
             "role_permissions",
@@ -247,10 +262,48 @@ async fn run_fresh(pool: &AnyPool, config: &config::Config) -> Result<(), anyhow
         ];
         
         for table in tables_to_drop {
-            sqlx::query(&format!("DROP TABLE IF EXISTS {}", table)).execute(pool).await?;
+            sqlx::query(&format!("DROP TABLE IF EXISTS {}", table)).execute(&mut *conn).await?;
         }
         
-        sqlx::query("PRAGMA foreign_keys = ON;").execute(pool).await?;
+        sqlx::query("SET FOREIGN_KEY_CHECKS = 1;").execute(&mut *conn).await?;
+    } else if !is_sqlite {
+        println!("Dropping and recreating PostgreSQL public schema...");
+        sqlx::query("DROP SCHEMA public CASCADE").execute(pool).await?;
+        sqlx::query("CREATE SCHEMA public").execute(pool).await?;
+        sqlx::query("GRANT ALL ON SCHEMA public TO public").execute(pool).await?;
+    } else {
+        println!("Dropping SQLite database tables...");
+        let mut conn = pool.acquire().await?;
+        // Disable foreign keys checks
+        sqlx::query("PRAGMA foreign_keys = OFF;").execute(&mut *conn).await?;
+        
+        let tables_to_drop = vec![
+            "role_permissions",
+            "user_roles",
+            "users",
+            "roles",
+            "permissions",
+            "licenses",
+            "subscriptions",
+            "sync_log",
+            "alerts",
+            "purchase_items",
+            "purchases",
+            "sale_items",
+            "sales",
+            "stock_movements",
+            "stock_items",
+            "products",
+            "categories",
+            "tenants",
+            "_sqlx_migrations",
+        ];
+        
+        for table in tables_to_drop {
+            sqlx::query(&format!("DROP TABLE IF EXISTS {}", table)).execute(&mut *conn).await?;
+        }
+        
+        sqlx::query("PRAGMA foreign_keys = ON;").execute(&mut *conn).await?;
     }
     
     println!("Database cleared successfully.");
