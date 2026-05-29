@@ -19,7 +19,8 @@ interface AuthState {
   licenseStatus: 'active' | 'trial' | 'expired' | 'suspended' | 'revoked';
   trialDaysLeft: number;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => Promise<boolean>;
+  login: (email: string, password: string) => Promise<'success' | '2fa' | false>;
+  verifyOtp: (email: string, otpCode: string) => Promise<boolean>;
   logout: () => void;
   hydrateSession: () => Promise<void>;
   activateLicense: (key: string) => Promise<boolean>;
@@ -107,6 +108,12 @@ export const useAuthStore = create<AuthState>((set, get) => {
     login: async (email, password) => {
       try {
         const response = await api.auth.login(email, password);
+
+        // 2FA required — no token yet
+        if (response.requires_two_factor) {
+          return '2fa';
+        }
+
         if (response.access_token && response.user) {
           localStorage.setItem('aztea_access_token', response.access_token);
           applyUserProfile(response.user);
@@ -114,11 +121,28 @@ export const useAuthStore = create<AuthState>((set, get) => {
 
           // Fetch license status directly after login
           await get().checkLicenseStatus();
-          return true;
+          return 'success';
         }
         return false;
       } catch (error) {
         console.error('Login error:', error);
+        throw error;
+      }
+    },
+
+    verifyOtp: async (email, otpCode) => {
+      try {
+        const response = await api.auth.verifyOtp(email, otpCode);
+        if (response.access_token && response.user) {
+          localStorage.setItem('aztea_access_token', response.access_token);
+          applyUserProfile(response.user);
+          set({ isAuthenticated: true });
+          await get().checkLicenseStatus();
+          return true;
+        }
+        return false;
+      } catch (error) {
+        console.error('Verify OTP error:', error);
         throw error;
       }
     },

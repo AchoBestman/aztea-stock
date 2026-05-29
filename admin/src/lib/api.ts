@@ -114,6 +114,7 @@ export interface Subscription {
   status: string;
   price_monthly: string | number;
   currency: string;
+  max_devices: number;
   started_at: string;
   expires_at: string;
   trial_ends_at: string | null;
@@ -128,6 +129,7 @@ export interface CreateSubscriptionPayload {
   status: string;
   price_monthly: number;
   currency?: string;
+  max_devices: number;
   expires_at: string;
   trial_ends_at?: string;
   notes?: string;
@@ -144,6 +146,7 @@ export interface License {
   last_verified_at: string | null;
   activated_at: string | null;
   revoked_at: string | null;
+  status: string;
   created_at: string;
 }
 
@@ -404,6 +407,12 @@ export const api = {
           ...payload,
           price_monthly: payload.price_monthly,
         }),
+      }),
+
+    update: (id: string, payload: Partial<CreateSubscriptionPayload>) =>
+      request<Subscription>(`/admin/subscriptions/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
       }),
 
     delete: (id: string) =>

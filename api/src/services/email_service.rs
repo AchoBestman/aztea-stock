@@ -1,7 +1,7 @@
-use std::sync::Arc;
-use lettre::{transport::smtp::authentication::Credentials, Message, SmtpTransport, Transport};
+use lettre::{Message, SmtpTransport, Transport, transport::smtp::authentication::Credentials};
+use sea_orm::EntityTrait;
 use serde::{Deserialize, Serialize};
-use sea_orm::{EntityTrait};
+use std::sync::Arc;
 
 use crate::AppState;
 use crate::utils::crypto::decrypt;
@@ -38,8 +38,16 @@ async fn resolve_smtp(state: &AppState, tenant_id: &str) -> SmtpConfig {
         host: state.config.smtp_host.clone(),
         port: state.config.smtp_port,
         secure: state.config.smtp_secure,
-        user: if state.config.smtp_user == "null" { None } else { Some(state.config.smtp_user.clone()) },
-        pass: if state.config.smtp_pass == "null" { None } else { Some(state.config.smtp_pass.clone()) },
+        user: if state.config.smtp_user == "null" {
+            None
+        } else {
+            Some(state.config.smtp_user.clone())
+        },
+        pass: if state.config.smtp_pass == "null" {
+            None
+        } else {
+            Some(state.config.smtp_pass.clone())
+        },
         from: state.config.smtp_from.clone(),
     };
 
@@ -48,6 +56,22 @@ async fn resolve_smtp(state: &AppState, tenant_id: &str) -> SmtpConfig {
         None => return fallback,
     };
 
+    // Decrypt and validate a tenant's SMTP fields.
+    // Returns Some((from, user, pass)) if all three are present and non-empty after decryption.
+    fn try_extract_smtp(t: &crate::models::tenant::Model) -> Option<(String, String, String)> {
+        let from = t.sender_email.as_deref().filter(|s| !s.is_empty())?;
+        let raw_user = t.sender_user.as_deref().filter(|s| !s.is_empty())?;
+        let raw_pass = t.sender_password.as_deref().filter(|s| !s.is_empty())?;
+
+        let user = decrypt(raw_user);
+        let pass = decrypt(raw_pass);
+
+        if user.is_empty() || pass.is_empty() {
+            return None;
+        }
+        Some((from.to_string(), user, pass))
+    }
+
     // Try the requested tenant first
     let tenant = crate::models::tenant::Entity::find_by_id(tenant_id)
         .one(db)
@@ -55,38 +79,47 @@ async fn resolve_smtp(state: &AppState, tenant_id: &str) -> SmtpConfig {
         .ok()
         .flatten();
 
-    let source = match tenant {
-        Some(ref t) if t.sender_email.is_some() && t.sender_user.is_some() && t.sender_password.is_some() => {
-            Some(t.clone())
-        }
-        _ => {
-            // Fall back to the system tenant
-            use sea_orm::{QueryFilter, ColumnTrait};
-            crate::models::tenant::Entity::find()
-                .filter(crate::models::tenant::Column::IsSystem.eq(true))
-                .one(db)
-                .await
-                .ok()
-                .flatten()
-        }
-    };
+    // Check requested tenant, then fall back to system tenant
+    let smtp_creds = tenant.as_ref().and_then(try_extract_smtp).or_else(|| {
+        // We need to query the system tenant synchronously inside this closure,
+        // but since we can't use async in closures easily, we'll handle below
+        None
+    });
 
-    match source {
-        Some(t) if t.sender_email.is_some() && t.sender_user.is_some() && t.sender_password.is_some() => {
-            let from = t.sender_email.clone().unwrap();
-            let user = decrypt(t.sender_user.as_deref().unwrap_or(""));
-            let pass = decrypt(t.sender_password.as_deref().unwrap_or(""));
-            SmtpConfig {
+    if let Some((from, user, pass)) = smtp_creds {
+        return SmtpConfig {
+            host: state.config.smtp_host.clone(),
+            port: state.config.smtp_port,
+            secure: state.config.smtp_secure,
+            user: Some(user),
+            pass: Some(pass),
+            from,
+        };
+    }
+
+    // Fall back to the system tenant
+    use sea_orm::{ColumnTrait, QueryFilter};
+    let system_tenant = crate::models::tenant::Entity::find()
+        .filter(crate::models::tenant::Column::IsSystem.eq(true))
+        .one(db)
+        .await
+        .ok()
+        .flatten();
+
+    if let Some(ref st) = system_tenant {
+        if let Some((from, user, pass)) = try_extract_smtp(st) {
+            return SmtpConfig {
                 host: state.config.smtp_host.clone(),
                 port: state.config.smtp_port,
                 secure: state.config.smtp_secure,
                 user: Some(user),
                 pass: Some(pass),
                 from,
-            }
+            };
         }
-        _ => fallback,
     }
+
+    fallback
 }
 
 // ─── Direct SMTP send ────────────────────────────────────────────────────────
@@ -126,8 +159,7 @@ pub async fn send_email_direct(
     };
 
     let email_clone = email.clone();
-    tokio::task::spawn_blocking(move || transport.send(&email_clone))
-        .await??;
+    tokio::task::spawn_blocking(move || transport.send(&email_clone)).await??;
 
     Ok(())
 }
@@ -162,7 +194,8 @@ pub async fn enqueue_email(
             let client = redis::Client::open(state.config.redis_url.clone())?;
             let mut conn = client.get_multiplexed_tokio_connection().await?;
             use redis::AsyncCommands;
-            conn.lpush::<_, _, ()>("email_queue", serde_json::to_string(&job)?).await?;
+            conn.lpush::<_, _, ()>("email_queue", serde_json::to_string(&job)?)
+                .await?;
             tracing::info!("📥 [Redis] Email enqueued → {}", to);
             Ok(true)
         }
@@ -170,11 +203,13 @@ pub async fn enqueue_email(
         // ── Cloudflare Queue ───────────────────────────────────────────────
         "cloudflare" => {
             let account_id = state.config.cloudflare_account_id.as_deref().unwrap_or("");
-            let queue_id   = state.config.cloudflare_queue_id.as_deref().unwrap_or("");
-            let api_token  = state.config.cloudflare_api_token.as_deref().unwrap_or("");
+            let queue_id = state.config.cloudflare_queue_id.as_deref().unwrap_or("");
+            let api_token = state.config.cloudflare_api_token.as_deref().unwrap_or("");
 
             if account_id.is_empty() || queue_id.is_empty() || api_token.is_empty() {
-                tracing::error!("❌ Cloudflare queue config incomplete — check CLOUDFLARE_* env vars");
+                tracing::error!(
+                    "❌ Cloudflare queue config incomplete — check CLOUDFLARE_* env vars"
+                );
                 return Ok(false);
             }
 
@@ -184,7 +219,10 @@ pub async fn enqueue_email(
 
             // Cloudflare limit: 128 KB
             if payload_size > 128 * 1024 {
-                tracing::error!("❌ Cloudflare Queue message too large ({} bytes). Limit is 128 KB.", payload_size);
+                tracing::error!(
+                    "❌ Cloudflare Queue message too large ({} bytes). Limit is 128 KB.",
+                    payload_size
+                );
                 // Graceful fallback to tokio_task
                 return dispatch_tokio_task(state, job).await;
             }
@@ -195,7 +233,8 @@ pub async fn enqueue_email(
             );
 
             let client = reqwest::Client::new();
-            let res = client.post(&url)
+            let res = client
+                .post(&url)
                 .bearer_auth(api_token)
                 .header("Content-Type", "application/json")
                 .body(serialized)
@@ -227,7 +266,8 @@ async fn dispatch_tokio_task(state: &AppState, job: EmailJob) -> Result<bool, an
         config: state.config.clone(),
     });
     tokio::spawn(async move {
-        match send_email_direct(&state_arc, &job.tenant_id, &job.to, &job.subject, &job.html).await {
+        match send_email_direct(&state_arc, &job.tenant_id, &job.to, &job.subject, &job.html).await
+        {
             Ok(_) => tracing::info!("✅ [TokioTask] Email sent → {}", job.to),
             Err(e) => tracing::error!("❌ [TokioTask] Email failed → {}: {}", job.to, e),
         }
@@ -244,7 +284,9 @@ pub fn start_email_worker(state: Arc<AppState>) {
             tracing::info!("📬 Starting Redis email queue worker…");
         }
         "cloudflare" => {
-            tracing::info!("📬 Queue driver = cloudflare. Worker handled by CF Worker — no local loop needed.");
+            tracing::info!(
+                "📬 Queue driver = cloudflare. Worker handled by CF Worker — no local loop needed."
+            );
             return;
         }
         _ => {
@@ -256,11 +298,17 @@ pub fn start_email_worker(state: Arc<AppState>) {
     tokio::spawn(async move {
         let client = match redis::Client::open(state.config.redis_url.clone()) {
             Ok(c) => c,
-            Err(e) => { tracing::error!("Redis client error: {}", e); return; }
+            Err(e) => {
+                tracing::error!("Redis client error: {}", e);
+                return;
+            }
         };
         let mut conn = match client.get_multiplexed_tokio_connection().await {
             Ok(c) => c,
-            Err(e) => { tracing::error!("Redis connection error: {}", e); return; }
+            Err(e) => {
+                tracing::error!("Redis connection error: {}", e);
+                return;
+            }
         };
 
         use redis::AsyncCommands;
@@ -277,18 +325,34 @@ pub fn start_email_worker(state: Arc<AppState>) {
             if let Some(raw) = raw {
                 let mut job: EmailJob = match serde_json::from_str(&raw) {
                     Ok(j) => j,
-                    Err(e) => { tracing::error!("Failed to parse email job: {}", e); continue; }
+                    Err(e) => {
+                        tracing::error!("Failed to parse email job: {}", e);
+                        continue;
+                    }
                 };
 
                 tracing::info!("Processing email job {} → {}", job.id, job.to);
 
-                match send_email_direct(&state, &job.tenant_id, &job.to, &job.subject, &job.html).await {
+                match send_email_direct(&state, &job.tenant_id, &job.to, &job.subject, &job.html)
+                    .await
+                {
                     Ok(_) => tracing::info!("✅ Email job {} sent.", job.id),
                     Err(e) => {
                         job.attempts += 1;
-                        tracing::error!("❌ Email job {} failed (attempt {}/{}): {}", job.id, job.attempts, job.max_attempts, e);
+                        tracing::error!(
+                            "❌ Email job {} failed (attempt {}/{}): {}",
+                            job.id,
+                            job.attempts,
+                            job.max_attempts,
+                            e
+                        );
                         if job.attempts < job.max_attempts {
-                            let _ = conn.lpush::<_, _, ()>("email_queue", serde_json::to_string(&job).unwrap()).await;
+                            let _ = conn
+                                .lpush::<_, _, ()>(
+                                    "email_queue",
+                                    serde_json::to_string(&job).unwrap(),
+                                )
+                                .await;
                             tracing::warn!("↩ Re-enqueued job {}", job.id);
                         } else {
                             tracing::error!("💀 Email job {} permanently failed.", job.id);
@@ -376,8 +440,20 @@ pub async fn send_otp_email(
   <p style="margin:16px 0 0;font-size:12px;color:#94a3b8;">⏱ Expire dans <strong>5 minutes</strong></p>
 </div>"#
     );
-    let html = base_template(&name, "Code de vérification", &format!("Votre code de connexion : {}", code), &body);
-    enqueue_email(state, tenant_id, to, &format!("{} — Code de vérification", name), &html).await
+    let html = base_template(
+        &name,
+        "Code de vérification",
+        &format!("Votre code de connexion : {}", code),
+        &body,
+    );
+    enqueue_email(
+        state,
+        tenant_id,
+        to,
+        &format!("{} — Code de vérification", name),
+        &html,
+    )
+    .await
 }
 
 /// Account creation / password reset invitation email — mirrors sendPasswordResetEmail()
@@ -433,8 +509,60 @@ pub async fn send_license_key_to_tenant(
   Conservez cette clé en lieu sûr. Elle est nécessaire pour activer votre application sur vos appareils.
 </p>"#
     );
-    let html = base_template(&name, "Votre clé de licence", "Votre clé de licence Aztea Stock", &body);
-    enqueue_email(state, tenant_id, to, &format!("{} — Votre clé de licence", name), &html).await
+    let html = base_template(
+        &name,
+        "Votre clé de licence",
+        "Votre clé de licence Aztea Stock",
+        &body,
+    );
+    enqueue_email(
+        state,
+        tenant_id,
+        to,
+        &format!("{} — Votre clé de licence", name),
+        &html,
+    )
+    .await
+}
+
+/// Sends multiple license keys to the tenant's email (batch generate)
+pub async fn send_batch_license_keys(
+    state: &AppState,
+    tenant_id: &str,
+    to: &str,
+    license_keys: &[String],
+) -> Result<bool, anyhow::Error> {
+    let name = tenant_name(state, tenant_id).await;
+    let keys_html = license_keys
+        .iter()
+        .map(|k| format!(r#"<div style="font-family:monospace;font-size:18px;font-weight:bold;color:#0f172a;background:#f1f5f9;padding:12px;border-radius:6px;margin-bottom:8px;text-align:center;letter-spacing:2px;">{k}</div>"#))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let body = format!(
+        r#"<h2 style="margin:0 0 16px;font-size:22px;color:#0f172a;">Vos nouvelles clés de licence</h2>
+<p style="margin:0 0 24px;font-size:14px;color:#64748b;">Voici les clés de licence générées pour votre compte <strong>{name}</strong>.</p>
+<div style="margin-bottom:32px;">
+    {keys_html}
+</div>
+<p style="margin:0 0 16px;font-size:14px;color:#64748b;">
+  Conservez ces clés en lieu sûr. Elles sont nécessaires pour activer AzteaStock sur vos appareils.
+</p>"#
+    );
+    let html = base_template(
+        &name,
+        "Vos clés de licence",
+        "Nouvelles clés de licence Aztea Stock",
+        &body,
+    );
+    enqueue_email(
+        state,
+        tenant_id,
+        to,
+        &format!("{} — Vos nouvelles clés de licence", name),
+        &html,
+    )
+    .await
 }
 
 /// License expiry renewal alert email
@@ -464,6 +592,18 @@ pub async fn send_license_renewal_alert(
   Pour éviter toute interruption de service, veuillez contacter votre gestionnaire de compte ou renouveler votre abonnement.
 </p>"#
     );
-    let html = base_template(&name, "Renouvellement de licence", "Renouvelez votre abonnement", &body);
-    enqueue_email(state, tenant_id, to, &format!("{} — Renouvellement de votre licence", name), &html).await
+    let html = base_template(
+        &name,
+        "Renouvellement de licence",
+        "Renouvelez votre abonnement",
+        &body,
+    );
+    enqueue_email(
+        state,
+        tenant_id,
+        to,
+        &format!("{} — Renouvellement de votre licence", name),
+        &html,
+    )
+    .await
 }

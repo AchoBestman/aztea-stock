@@ -31,11 +31,11 @@ export function formatDateShort(iso: string | null | undefined): string {
 
 export const PLAN_PRESETS: Record<
   string,
-  { label: string; price: number; currency: string }
+  { label: string; price: number; currency: string; max_devices: number }
 > = {
-  starter: { label: "Starter", price: 15000, currency: "XAF" },
-  pro: { label: "Pro", price: 35000, currency: "XAF" },
-  enterprise: { label: "Enterprise", price: 75000, currency: "XAF" },
+  starter: { label: "Starter", price: 15000, currency: "XAF", max_devices: 1 },
+  pro: { label: "Pro", price: 35000, currency: "XAF", max_devices: 3 },
+  enterprise: { label: "Enterprise", price: 75000, currency: "XAF", max_devices: 10 },
 };
 
 export const BUSINESS_TYPES = [
@@ -46,6 +46,7 @@ export const BUSINESS_TYPES = [
 
 export const SUBSCRIPTION_STATUSES = [
   { value: "trial", label: "Essai" },
+  { value: "production", label: "Production" },
   { value: "active", label: "Actif" },
   { value: "suspended", label: "Suspendu" },
   { value: "cancelled", label: "Annulé" },

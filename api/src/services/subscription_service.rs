@@ -1,8 +1,13 @@
-use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, QueryFilter, ColumnTrait, Set};
 use crate::{
+    dtos::subscription_dto::{
+        CreateSubscriptionPayload, SubscriptionResponse, UpdateSubscriptionStatusPayload,
+    },
     errors::ApiError,
     models::subscription,
-    dtos::subscription_dto::{CreateSubscriptionPayload, SubscriptionResponse, UpdateSubscriptionStatusPayload},
+};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
+    Set,
 };
 
 pub struct SubscriptionService;
@@ -16,6 +21,7 @@ impl SubscriptionService {
             status: model.status,
             price_monthly: model.price_monthly,
             currency: model.currency.unwrap_or_else(|| "XAF".to_string()),
+            max_devices: model.max_devices,
             started_at: model.started_at.to_rfc3339(),
             expires_at: model.expires_at.to_rfc3339(),
             trial_ends_at: model.trial_ends_at.map(|d| d.to_rfc3339()),
@@ -26,20 +32,32 @@ impl SubscriptionService {
     }
 
     pub async fn create_subscription(
-        db: &DatabaseConnection,
+        state: &crate::AppState,
         payload: CreateSubscriptionPayload,
     ) -> Result<SubscriptionResponse, ApiError> {
+        let db = state
+            .db
+            .as_ref()
+            .ok_or_else(|| ApiError::Internal("Base de données indisponible".to_string()))?;
         let id = uuid::Uuid::new_v4().to_string();
-        
-        let expires_at = chrono::DateTime::parse_from_rfc3339(&payload.expires_at)
-            .map_err(|_| ApiError::BadRequest("Format de date invalide pour expires_at".to_string()))?;
-        
+
+        let expires_at =
+            chrono::DateTime::parse_from_rfc3339(&payload.expires_at).map_err(|_| {
+                ApiError::BadRequest("Format de date invalide pour expires_at".to_string())
+            })?;
+
         let trial_ends_at = if let Some(d) = payload.trial_ends_at {
-            Some(chrono::DateTime::parse_from_rfc3339(&d)
-                .map_err(|_| ApiError::BadRequest("Format de date invalide pour trial_ends_at".to_string()))?)
+            Some(chrono::DateTime::parse_from_rfc3339(&d).map_err(|_| {
+                ApiError::BadRequest("Format de date invalide pour trial_ends_at".to_string())
+            })?)
         } else {
             None
         };
+
+        let sub_status = payload.status.clone();
+        let max_devices = payload.max_devices;
+        let tenant_id = payload.tenant_id.clone();
+        let sub_id = id.clone();
 
         let sub = subscription::ActiveModel {
             id: Set(id),
@@ -51,15 +69,120 @@ impl SubscriptionService {
             started_at: Set(chrono::Utc::now().fixed_offset()),
             expires_at: Set(expires_at),
             trial_ends_at: Set(trial_ends_at),
+            max_devices: Set(payload.max_devices),
             notes: Set(payload.notes),
             ..Default::default()
         };
 
         let model = sub.insert(db).await.map_err(|e| {
-            ApiError::Database(sea_orm::DbErr::Custom(format!("Erreur création abonnement: {}", e)))
+            ApiError::Database(sea_orm::DbErr::Custom(format!(
+                "Erreur création abonnement: {}",
+                e
+            )))
         })?;
 
+        // Automatically generate initial licenses
+        let license_status = if sub_status == "trial" {
+            "trial"
+        } else {
+            "production"
+        };
+        let _ = crate::services::license_service::LicenseService::generate_batch_licenses(
+            db,
+            state,
+            &tenant_id,
+            &sub_id,
+            max_devices,
+            license_status,
+        )
+        .await?;
+
         Ok(Self::map_to_response(model))
+    }
+
+    pub async fn update_subscription(
+        state: &crate::AppState,
+        subscription_id: &str,
+        payload: crate::dtos::subscription_dto::UpdateSubscriptionPayload,
+        caller_user_id: &str,
+        caller_tenant_id: &str,
+    ) -> Result<SubscriptionResponse, ApiError> {
+        let db = state
+            .db
+            .as_ref()
+            .ok_or_else(|| ApiError::Internal("Base de données indisponible".to_string()))?;
+
+        crate::utils::auth::assert_system_admin_access(db, caller_user_id, caller_tenant_id)
+            .await?;
+
+        let sub = subscription::Entity::find_by_id(subscription_id)
+            .one(db)
+            .await?
+            .ok_or_else(|| ApiError::NotFound("Abonnement introuvable".to_string()))?;
+
+        let old_max = sub.max_devices;
+        let new_max = payload.max_devices;
+
+        // If reducing limit, check if we have more licenses than the new limit
+        if new_max < old_max {
+            let total_licenses = crate::models::license::Entity::find()
+                .filter(crate::models::license::Column::SubscriptionId.eq(subscription_id))
+                .count(db)
+                .await?;
+
+            if total_licenses > new_max as u64 {
+                return Err(ApiError::BadRequest(format!(
+                    "Impossible de réduire le nombre d'appareils à {}. {} licences sont déjà générées pour cet abonnement. Veuillez révoquer ou supprimer certaines licences d'abord.",
+                    new_max, total_licenses
+                )));
+            }
+        }
+
+        let expires_at =
+            chrono::DateTime::parse_from_rfc3339(&payload.expires_at).map_err(|_| {
+                ApiError::BadRequest("Format de date invalide pour expires_at".to_string())
+            })?;
+
+        let trial_ends_at = if let Some(d) = payload.trial_ends_at {
+            Some(chrono::DateTime::parse_from_rfc3339(&d).map_err(|_| {
+                ApiError::BadRequest("Format de date invalide pour trial_ends_at".to_string())
+            })?)
+        } else {
+            None
+        };
+
+        let mut active: subscription::ActiveModel = sub.into();
+        active.plan = Set(payload.plan);
+        active.status = Set(payload.status.clone());
+        active.price_monthly = Set(payload.price_monthly);
+        active.currency = Set(payload.currency);
+        active.expires_at = Set(expires_at);
+        active.trial_ends_at = Set(trial_ends_at);
+        active.max_devices = Set(new_max);
+        active.notes = Set(payload.notes);
+
+        let updated = active.update(db).await?;
+
+        // If limit increased, generate and send the difference
+        if new_max > old_max {
+            let diff = new_max - old_max;
+            let license_status = if payload.status == "trial" {
+                "trial"
+            } else {
+                "production"
+            };
+            let _ = crate::services::license_service::LicenseService::generate_batch_licenses(
+                db,
+                state,
+                &updated.tenant_id,
+                &updated.id,
+                diff,
+                license_status,
+            )
+            .await?;
+        }
+
+        Ok(Self::map_to_response(updated))
     }
 
     pub async fn list_subscriptions(
@@ -78,7 +201,7 @@ impl SubscriptionService {
             query = query.filter(
                 sea_orm::Condition::any()
                     .add(subscription::Column::Plan.contains(&search))
-                    .add(subscription::Column::Status.contains(&search))
+                    .add(subscription::Column::Status.contains(&search)),
             );
         }
 
@@ -117,9 +240,9 @@ impl SubscriptionService {
         let paginator = query.paginate(db, per_page);
         let total = paginator.num_items().await?;
         let total_pages = paginator.num_pages().await?;
-        
+
         let models = paginator.fetch_page(page - 1).await?;
-        
+
         Ok(crate::utils::pagination::PaginatedResponse {
             data: models.into_iter().map(Self::map_to_response).collect(),
             total,
@@ -137,7 +260,7 @@ impl SubscriptionService {
             .one(db)
             .await?
             .ok_or_else(|| ApiError::NotFound("Abonnement introuvable".to_string()))?;
-        
+
         Ok(Self::map_to_response(model))
     }
 
@@ -148,11 +271,15 @@ impl SubscriptionService {
         caller_tenant_id: &str,
     ) -> Result<(), ApiError> {
         use sea_orm::EntityTrait;
-        crate::utils::auth::assert_system_admin_access(db, caller_user_id, caller_tenant_id).await?;
+        crate::utils::auth::assert_system_admin_access(db, caller_user_id, caller_tenant_id)
+            .await?;
         subscription::Entity::find_by_id(subscription_id)
-            .one(db).await?
+            .one(db)
+            .await?
             .ok_or_else(|| ApiError::NotFound("Abonnement introuvable".to_string()))?;
-        subscription::Entity::delete_by_id(subscription_id).exec(db).await?;
+        subscription::Entity::delete_by_id(subscription_id)
+            .exec(db)
+            .await?;
         Ok(())
     }
 
@@ -164,9 +291,11 @@ impl SubscriptionService {
         caller_tenant_id: &str,
     ) -> Result<SubscriptionResponse, ApiError> {
         use sea_orm::EntityTrait;
-        crate::utils::auth::assert_system_admin_access(db, caller_user_id, caller_tenant_id).await?;
+        crate::utils::auth::assert_system_admin_access(db, caller_user_id, caller_tenant_id)
+            .await?;
         let sub = subscription::Entity::find_by_id(subscription_id)
-            .one(db).await?
+            .one(db)
+            .await?
             .ok_or_else(|| ApiError::NotFound("Abonnement introuvable".to_string()))?;
 
         let mut active: subscription::ActiveModel = sub.into();

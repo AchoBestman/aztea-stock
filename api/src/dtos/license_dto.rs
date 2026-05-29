@@ -36,6 +36,8 @@ pub struct LicenseResponse {
     pub activated_at: Option<String>,
     #[schema(nullable)]
     pub revoked_at: Option<String>,
+    #[schema(example = "production")]
+    pub status: String,
     #[schema(example = "2026-05-20T10:00:00Z")]
     pub created_at: String,
 }
@@ -74,5 +76,5 @@ pub struct LicenseStatusResponse {
     pub subscription_plan: Option<String>,
     pub expires_at: Option<String>,
     pub days_remaining: Option<i64>,
-    pub renewal_alert: bool,   // true if ≤ 7 days remaining
+    pub renewal_alert: bool, // true if ≤ 7 days remaining
 }

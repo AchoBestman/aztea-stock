@@ -1,15 +1,20 @@
-use axum::{Extension, Json, extract::{State, Query, Path}};
-use std::sync::Arc;
 use crate::{
     AppState,
+    dtos::subscription_dto::{
+        CreateSubscriptionPayload, SubscriptionResponse, UpdateSubscriptionStatusPayload,
+    },
     errors::ApiError,
     middleware::auth::Claims,
-    dtos::subscription_dto::{CreateSubscriptionPayload, SubscriptionResponse, UpdateSubscriptionStatusPayload},
+    models::tenant,
     services::subscription_service::SubscriptionService,
     utils::{auth::require_permission, pagination::PaginationParams},
-    models::tenant,
+};
+use axum::{
+    Extension, Json,
+    extract::{Path, Query, State},
 };
 use sea_orm::EntityTrait;
+use std::sync::Arc;
 
 #[utoipa::path(
     post,
@@ -26,13 +31,14 @@ pub async fn create_subscription(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateSubscriptionPayload>,
 ) -> Result<Json<SubscriptionResponse>, ApiError> {
-    let db = state.db.as_ref().ok_or_else(|| {
-        ApiError::Internal("Base de données indisponible".to_string())
-    })?;
+    let db = state
+        .db
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("Base de données indisponible".to_string()))?;
 
     require_permission(db, &claims.sub, "can_manage_subscriptions").await?;
 
-    let sub = SubscriptionService::create_subscription(db, payload).await?;
+    let sub = SubscriptionService::create_subscription(&state, payload).await?;
     Ok(Json(sub))
 }
 
@@ -51,13 +57,15 @@ pub async fn list_subscriptions(
     State(state): State<Arc<AppState>>,
     Query(params): Query<PaginationParams>,
 ) -> Result<Json<crate::dtos::subscription_dto::PaginatedSubscriptionResponse>, ApiError> {
-    let db = state.db.as_ref().ok_or_else(|| {
-        ApiError::Internal("Base de données indisponible".to_string())
-    })?;
+    let db = state
+        .db
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("Base de données indisponible".to_string()))?;
 
     // Determine if caller is a system tenant — if not, scope to their own tenant_id
     let caller_tenant = tenant::Entity::find_by_id(&claims.tenant_id)
-        .one(db).await?
+        .one(db)
+        .await?
         .ok_or_else(|| ApiError::Unauthorized("Tenant introuvable".to_string()))?;
 
     let enforce_tenant_id = if caller_tenant.is_system {
@@ -75,13 +83,15 @@ pub async fn list_subscriptions(
     }
 
     let subs = SubscriptionService::list_subscriptions(db, params, enforce_tenant_id).await?;
-    Ok(Json(crate::dtos::subscription_dto::PaginatedSubscriptionResponse {
-        data: subs.data,
-        total: subs.total,
-        page: subs.page,
-        per_page: subs.per_page,
-        total_pages: subs.total_pages,
-    }))
+    Ok(Json(
+        crate::dtos::subscription_dto::PaginatedSubscriptionResponse {
+            data: subs.data,
+            total: subs.total,
+            page: subs.page,
+            per_page: subs.per_page,
+            total_pages: subs.total_pages,
+        },
+    ))
 }
 
 #[utoipa::path(
@@ -99,12 +109,16 @@ pub async fn delete_subscription(
     State(state): State<Arc<AppState>>,
     Path(subscription_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let db = state.db.as_ref().ok_or_else(|| {
-        ApiError::Internal("Base de données indisponible".to_string())
-    })?;
+    let db = state
+        .db
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("Base de données indisponible".to_string()))?;
     require_permission(db, &claims.sub, "can_manage_subscriptions").await?;
-    SubscriptionService::delete_subscription(db, &subscription_id, &claims.sub, &claims.tenant_id).await?;
-    Ok(Json(serde_json::json!({"success": true, "message": "Abonnement supprimé."})))
+    SubscriptionService::delete_subscription(db, &subscription_id, &claims.sub, &claims.tenant_id)
+        .await?;
+    Ok(Json(
+        serde_json::json!({"success": true, "message": "Abonnement supprimé."}),
+    ))
 }
 
 #[utoipa::path(
@@ -124,10 +138,46 @@ pub async fn update_subscription_status(
     Path(subscription_id): Path<String>,
     Json(payload): Json<UpdateSubscriptionStatusPayload>,
 ) -> Result<Json<SubscriptionResponse>, ApiError> {
-    let db = state.db.as_ref().ok_or_else(|| {
-        ApiError::Internal("Base de données indisponible".to_string())
-    })?;
+    let db = state
+        .db
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("Base de données indisponible".to_string()))?;
     require_permission(db, &claims.sub, "can_manage_subscriptions").await?;
-    let sub = SubscriptionService::update_subscription_status(db, &subscription_id, payload, &claims.sub, &claims.tenant_id).await?;
+    let sub = SubscriptionService::update_subscription_status(
+        db,
+        &subscription_id,
+        payload,
+        &claims.sub,
+        &claims.tenant_id,
+    )
+    .await?;
+    Ok(Json(sub))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/admin/subscriptions/{id}",
+    request_body = UpdateSubscriptionPayload,
+    params(("id" = String, Path, description = "Subscription ID")),
+    responses(
+        (status = 200, description = "Abonnement mis à jour.", body = SubscriptionResponse),
+    ),
+    security(("bearerAuth" = [])),
+    tag = "Admin - Subscriptions"
+)]
+pub async fn update_subscription(
+    Extension(claims): Extension<Claims>,
+    State(state): State<Arc<AppState>>,
+    Path(subscription_id): Path<String>,
+    Json(payload): Json<crate::dtos::subscription_dto::UpdateSubscriptionPayload>,
+) -> Result<Json<SubscriptionResponse>, ApiError> {
+    let sub = SubscriptionService::update_subscription(
+        &state,
+        &subscription_id,
+        payload,
+        &claims.sub,
+        &claims.tenant_id,
+    )
+    .await?;
     Ok(Json(sub))
 }

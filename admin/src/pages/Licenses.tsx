@@ -64,6 +64,7 @@ export default function Licenses() {
             <tr>
               <th className="px-4 py-3 font-semibold">Clé (masquée)</th>
               <th className="px-4 py-3 font-semibold">Entreprise</th>
+              <th className="px-4 py-3 font-semibold">Type</th>
               <th className="px-4 py-3 font-semibold">Appareil</th>
               <th className="px-4 py-3 font-semibold">Statut</th>
               <th className="px-4 py-3 font-semibold">Créée</th>
@@ -87,6 +88,7 @@ export default function Licenses() {
                 <tr key={l.id} className="border-t border-border">
                   <td className="px-4 py-3 font-mono text-xs">{l.license_key_masked}</td>
                   <td className="px-4 py-3">{tenantName(l.tenant_id)}</td>
+                  <td className="px-4 py-3 capitalize">{l.status || "—"}</td>
                   <td className="px-4 py-3 text-muted-foreground">
                     {l.device_name || "—"}
                   </td>

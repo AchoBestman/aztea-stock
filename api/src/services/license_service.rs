@@ -1,10 +1,16 @@
-use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, QueryFilter, ColumnTrait, Set, PaginatorTrait};
-use rand::Rng;
 use crate::{
+    dtos::license_dto::{
+        ActivateLicensePayload, FullLicenseResponse, GenerateLicensePayload, LicenseResponse,
+        RevealLicenseResponse,
+    },
     errors::ApiError,
     models::{license, subscription},
-    dtos::license_dto::{ActivateLicensePayload, FullLicenseResponse, GenerateLicensePayload, LicenseResponse, RevealLicenseResponse},
-    utils::crypto::{encrypt, decrypt},
+    utils::crypto::{decrypt, encrypt},
+};
+use rand::Rng;
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
+    Set,
 };
 
 pub struct LicenseService;
@@ -22,6 +28,7 @@ impl LicenseService {
             last_verified_at: model.last_verified_at.map(|d| d.to_rfc3339()),
             activated_at: model.activated_at.map(|d| d.to_rfc3339()),
             revoked_at: model.revoked_at.map(|d| d.to_rfc3339()),
+            status: model.status,
             created_at: model.created_at.to_rfc3339(),
         }
     }
@@ -49,9 +56,11 @@ impl LicenseService {
             .one(db)
             .await?
             .ok_or_else(|| ApiError::NotFound("Abonnement introuvable".to_string()))?;
-        
+
         if sub.tenant_id != payload.tenant_id {
-            return Err(ApiError::BadRequest("L'abonnement n'appartient pas à ce tenant".to_string()));
+            return Err(ApiError::BadRequest(
+                "L'abonnement n'appartient pas à ce tenant".to_string(),
+            ));
         }
 
         let current_licenses_count = license::Entity::find()
@@ -71,7 +80,6 @@ impl LicenseService {
         let plain_key = Self::generate_random_key();
         let encrypted_key = encrypt(&plain_key);
 
-
         let lic = license::ActiveModel {
             id: Set(id.clone()),
             tenant_id: Set(payload.tenant_id.clone()),
@@ -83,7 +91,10 @@ impl LicenseService {
         };
 
         let model = lic.insert(db).await.map_err(|e| {
-            ApiError::Database(sea_orm::DbErr::Custom(format!("Erreur création licence: {}", e)))
+            ApiError::Database(sea_orm::DbErr::Custom(format!(
+                "Erreur création licence: {}",
+                e
+            )))
         })?;
 
         Ok(FullLicenseResponse {
@@ -110,8 +121,7 @@ impl LicenseService {
 
         if let Some(search) = params.search {
             query = query.filter(
-                sea_orm::Condition::any()
-                    .add(license::Column::DeviceName.contains(&search))
+                sea_orm::Condition::any().add(license::Column::DeviceName.contains(&search)),
             );
         }
 
@@ -149,9 +159,9 @@ impl LicenseService {
         let paginator = query.paginate(db, per_page);
         let total = paginator.num_items().await?;
         let total_pages = paginator.num_pages().await?;
-        
+
         let models = paginator.fetch_page(page - 1).await?;
-        
+
         Ok(crate::utils::pagination::PaginatedResponse {
             data: models.into_iter().map(Self::map_to_response).collect(),
             total,
@@ -175,27 +185,40 @@ impl LicenseService {
             let decrypted = decrypt(&model.license_key);
             if decrypted == payload.license_key {
                 if model.is_active == Some(false) || model.revoked_at.is_some() {
-                    return Err(ApiError::BadRequest("Cette clé de licence a été révoquée ou est inactive".to_string()));
+                    return Err(ApiError::BadRequest(
+                        "Cette clé de licence a été révoquée ou est inactive".to_string(),
+                    ));
                 }
-                
+
                 if let Some(payload_fp) = &payload.device_fingerprint {
-                    let decrypted_payload_fp = crate::utils::crypto::validate_and_decrypt_fingerprint(payload_fp)
-                        .map_err(|e| ApiError::BadRequest(format!("Empreinte invalide: {}", e)))?;
-                    
+                    let decrypted_payload_fp =
+                        crate::utils::crypto::validate_and_decrypt_fingerprint(payload_fp)
+                            .map_err(|e| {
+                                ApiError::BadRequest(format!("Empreinte invalide: {}", e))
+                            })?;
+
                     if model.activated_at.is_some() {
                         if let Some(stored_fp) = &model.device_fingerprint {
-                            let decrypted_stored_fp = crate::utils::crypto::validate_and_decrypt_fingerprint(stored_fp)
-                                .unwrap_or_else(|_| stored_fp.clone());
-                                
+                            let decrypted_stored_fp =
+                                crate::utils::crypto::validate_and_decrypt_fingerprint(stored_fp)
+                                    .unwrap_or_else(|_| stored_fp.clone());
+
                             if decrypted_stored_fp != decrypted_payload_fp {
-                                return Err(ApiError::BadRequest("Cette clé de licence est déjà utilisée par un autre appareil".to_string()));
+                                return Err(ApiError::BadRequest(
+                                    "Cette clé de licence est déjà utilisée par un autre appareil"
+                                        .to_string(),
+                                ));
                             }
                         } else {
-                            return Err(ApiError::BadRequest("Cette clé de licence est déjà utilisée".to_string()));
+                            return Err(ApiError::BadRequest(
+                                "Cette clé de licence est déjà utilisée".to_string(),
+                            ));
                         }
                     }
                 } else if model.activated_at.is_some() {
-                    return Err(ApiError::BadRequest("Empreinte de l'appareil (device_fingerprint) requise".to_string()));
+                    return Err(ApiError::BadRequest(
+                        "Empreinte de l'appareil (device_fingerprint) requise".to_string(),
+                    ));
                 }
 
                 let mut active_lic: license::ActiveModel = model.into();
@@ -203,13 +226,15 @@ impl LicenseService {
                 active_lic.device_fingerprint = Set(payload.device_fingerprint.clone());
                 active_lic.activated_at = Set(Some(chrono::Utc::now().fixed_offset()));
                 active_lic.last_verified_at = Set(Some(chrono::Utc::now().fixed_offset()));
-                
+
                 let updated = active_lic.update(db).await?;
                 return Ok(Self::map_to_response(updated));
             }
         }
 
-        Err(ApiError::NotFound("Clé de licence invalide ou introuvable pour cette entreprise".to_string()))
+        Err(ApiError::NotFound(
+            "Clé de licence invalide ou introuvable pour cette entreprise".to_string(),
+        ))
     }
 
     /// Returns the active license status for a tenant, including subscription plan & expiry.
@@ -234,7 +259,7 @@ impl LicenseService {
                     .order_by_desc(license::Column::CreatedAt)
                     .one(db)
                     .await?;
-                
+
                 let status = if let Some(lic) = any_license {
                     if lic.revoked_at.is_some() {
                         "revoked".to_string()
@@ -267,10 +292,12 @@ impl LicenseService {
                         let now = chrono::Utc::now();
                         let days = (expires.with_timezone(&chrono::Utc) - now).num_days();
                         let alert = days <= 7;
-                        
+
                         let computed_status = if s.status == "suspended" {
                             "suspended".to_string()
-                        } else if s.status == "cancelled" || expires.with_timezone(&chrono::Utc) < now {
+                        } else if s.status == "cancelled"
+                            || expires.with_timezone(&chrono::Utc) < now
+                        {
                             "expired".to_string()
                         } else {
                             "active".to_string()
@@ -306,9 +333,11 @@ impl LicenseService {
         caller_tenant_id: &str,
     ) -> Result<RevealLicenseResponse, ApiError> {
         use sea_orm::EntityTrait;
-        crate::utils::auth::assert_system_admin_access(db, caller_user_id, caller_tenant_id).await?;
+        crate::utils::auth::assert_system_admin_access(db, caller_user_id, caller_tenant_id)
+            .await?;
         let model = license::Entity::find_by_id(license_id)
-            .one(db).await?
+            .one(db)
+            .await?
             .ok_or_else(|| ApiError::NotFound("Licence introuvable".to_string()))?;
         let plain = decrypt(&model.license_key);
         Ok(RevealLicenseResponse {
@@ -326,24 +355,31 @@ impl LicenseService {
         caller_tenant_id: &str,
     ) -> Result<(), ApiError> {
         use sea_orm::EntityTrait;
-        crate::utils::auth::assert_system_admin_access(db, caller_user_id, caller_tenant_id).await?;
+        crate::utils::auth::assert_system_admin_access(db, caller_user_id, caller_tenant_id)
+            .await?;
         let model = license::Entity::find_by_id(license_id)
-            .one(db).await?
+            .one(db)
+            .await?
             .ok_or_else(|| ApiError::NotFound("Licence introuvable".to_string()))?;
         let plain = decrypt(&model.license_key);
         let tenant = crate::models::tenant::Entity::find_by_id(&model.tenant_id)
-            .one(db).await?
+            .one(db)
+            .await?
             .ok_or_else(|| ApiError::NotFound("Tenant introuvable".to_string()))?;
         let email = tenant.email;
-        let _ = crate::services::email_service::send_license_key_to_tenant(state, &model.tenant_id, &email, &plain).await;
+        let _ = crate::services::email_service::send_license_key_to_tenant(
+            state,
+            &model.tenant_id,
+            &email,
+            &plain,
+        )
+        .await;
         Ok(())
     }
 
     /// Background job: checks all active subscriptions. Suspends expired ones and
     /// notifies tenants whose licenses expire within 7 days.
-    pub async fn check_and_notify_expiring_licenses(
-        state: &crate::AppState,
-    ) {
+    pub async fn check_and_notify_expiring_licenses(state: &crate::AppState) {
         let db = match state.db.as_ref() {
             Some(db) => db,
             None => return,
@@ -361,7 +397,11 @@ impl LicenseService {
             .unwrap_or_default();
 
         for sub in expired {
-            tracing::info!("[LicenseTask] Suspending expired subscription {} for tenant {}", sub.id, sub.tenant_id);
+            tracing::info!(
+                "[LicenseTask] Suspending expired subscription {} for tenant {}",
+                sub.id,
+                sub.tenant_id
+            );
             let mut active_sub: subscription::ActiveModel = sub.clone().into();
             active_sub.status = sea_orm::Set("suspended".to_string());
             let _ = sea_orm::ActiveModelTrait::update(active_sub, db).await;
@@ -396,7 +436,10 @@ impl LicenseService {
                     .unwrap_or(None);
 
                 if other_active.is_none() {
-                    tracing::info!("[LicenseTask] Deactivating tenant {} — no remaining active subscription", sub.tenant_id);
+                    tracing::info!(
+                        "[LicenseTask] Deactivating tenant {} — no remaining active subscription",
+                        sub.tenant_id
+                    );
                     let mut active_tenant: crate::models::tenant::ActiveModel = t.into();
                     active_tenant.is_active = sea_orm::Set(Some(false));
                     let _ = sea_orm::ActiveModelTrait::update(active_tenant, db).await;
@@ -414,10 +457,12 @@ impl LicenseService {
             .unwrap_or_default();
 
         for sub in expiring_soon {
-            let days_left = (sub.expires_at.with_timezone(&chrono::Utc) - chrono::Utc::now()).num_days();
+            let days_left =
+                (sub.expires_at.with_timezone(&chrono::Utc) - chrono::Utc::now()).num_days();
             tracing::info!(
                 "[LicenseTask] Sending renewal alert for tenant {} — {} days left",
-                sub.tenant_id, days_left
+                sub.tenant_id,
+                days_left
             );
 
             // Fetch tenant email
@@ -438,5 +483,62 @@ impl LicenseService {
                 .await;
             }
         }
+    }
+
+    pub async fn generate_batch_licenses(
+        db: &DatabaseConnection,
+        state: &crate::AppState,
+        tenant_id: &str,
+        subscription_id: &str,
+        count: i32,
+        status: &str, // "production", "trial"
+    ) -> Result<Vec<String>, ApiError> {
+        let mut keys = Vec::new();
+
+        // 1. Fetch tenant email for delivery
+        let tenant = crate::models::tenant::Entity::find_by_id(tenant_id)
+            .one(db)
+            .await?
+            .ok_or_else(|| ApiError::NotFound("Entreprise introuvable".to_string()))?;
+
+        // 2. Generate and store N licenses
+        for _ in 0..count {
+            let id = uuid::Uuid::new_v4().to_string();
+            let plain_key = Self::generate_random_key();
+            let encrypted_key = encrypt(&plain_key);
+
+            let lic = license::ActiveModel {
+                id: Set(id),
+                tenant_id: Set(tenant_id.to_string()),
+                subscription_id: Set(subscription_id.to_string()),
+                license_key: Set(encrypted_key),
+                status: Set(status.to_string()),
+                is_active: Set(Some(true)),
+                created_at: Set(chrono::Utc::now().fixed_offset()),
+                ..Default::default()
+            };
+
+            lic.insert(db).await.map_err(|e| {
+                ApiError::Database(sea_orm::DbErr::Custom(format!(
+                    "Erreur lors de la génération automatique d'une licence: {}",
+                    e
+                )))
+            })?;
+
+            keys.push(plain_key);
+        }
+
+        // 3. Dispatch email with the batch of keys
+        if !keys.is_empty() {
+            let _ = crate::services::email_service::send_batch_license_keys(
+                state,
+                tenant_id,
+                &tenant.email,
+                &keys,
+            )
+            .await;
+        }
+
+        Ok(keys)
     }
 }

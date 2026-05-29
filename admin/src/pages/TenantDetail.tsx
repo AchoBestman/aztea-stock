@@ -30,7 +30,7 @@ export default function TenantDetail() {
   const r2UploadAvailable = useR2UploadAvailable();
   const { id } = useParams<{ id: string }>();
   const [tenant, setTenant] = useState<Tenant | null>(null);
-  const [activeTab, setActiveTab] = useState<string>("None");
+  const [activeTab, setActiveTab] = useState<string>("Stats");
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [licenses, setLicenses] = useState<License[]>([]);
   const [subPage, setSubPage] = useState(1);
@@ -1085,31 +1085,34 @@ export default function TenantDetail() {
         onCancel={() => setConfirmData(null)}
       />
 
-      <div className="pt-6 border-t border-border">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-bold">Données Opérationnelles</h3>
+
+      <Section title="Tableau de Bord & Statistiques">
+        {id && <TenantStats tenantId={id} />}
+      </Section>
+
+      <div className="pt-8 border-t border-border">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h3 className="text-xl font-bold text-foreground">Données Opérationnelles</h3>
+            <p className="text-sm text-muted-foreground">Consultez les listes détaillées de l'entreprise</p>
+          </div>
           <select
             className="form-select max-w-[200px]"
             value={activeTab}
             onChange={(e) => setActiveTab(e.target.value)}
           >
-            <option value="None">-- Sélectionner --</option>
-            <option value="Stats">Statistiques</option>
-            <option value="Alerts">Alertes</option>
-            <option value="Categories">Catégories</option>
+            <option value="None">-- Sélectionner une liste --</option>
             <option value="Products">Produits</option>
-            <option value="SyncLogs">Sync Logs</option>
+            <option value="Categories">Catégories</option>
             <option value="Sales">Ventes</option>
             <option value="Purchases">Achats</option>
-            <option value="Stock">Stock</option>
+            <option value="Stock">Mouvements de Stock</option>
+            <option value="Alerts">Alertes</option>
+            <option value="SyncLogs">Logs de Sync</option>
           </select>
         </div>
 
-        {activeTab === "Stats" && id && (
-          <TenantStats tenantId={id} />
-        )}
-
-        {activeTab !== "None" && activeTab !== "Stats" && id && (
+        {activeTab !== "None" && id && (
           <AdminDataView tenantId={id} type={activeTab as any} />
         )}
       </div>

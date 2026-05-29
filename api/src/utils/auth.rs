@@ -1,8 +1,8 @@
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, PaginatorTrait};
 use crate::{
     errors::ApiError,
-    models::{user_role, role_permission, permission, role, tenant},
+    models::{permission, role, role_permission, tenant, user_role},
 };
+use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
 
 /// Rôles et noms de permissions effectifs pour un utilisateur (Super Admin → toutes les permissions).
 pub async fn fetch_user_roles_and_permissions(
@@ -125,7 +125,7 @@ pub async fn assert_system_admin_access(
     ))
 }
 
-/// Enforces that a user has a specific permission, returning an ApiError::Unauthorized if not.
+/// Enforces that a user has a specific permission, returning an ApiError::Forbidden if not.
 pub async fn require_permission(
     db: &sea_orm::DatabaseConnection,
     user_id: &str,
@@ -133,7 +133,7 @@ pub async fn require_permission(
 ) -> Result<(), ApiError> {
     match check_permission(db, user_id, permission_name).await {
         Ok(true) => Ok(()),
-        Ok(false) => Err(ApiError::Unauthorized(format!(
+        Ok(false) => Err(ApiError::Forbidden(format!(
             "Vous n'avez pas la permission requise : {}",
             permission_name
         ))),
@@ -152,14 +152,18 @@ pub async fn require_tenant_access(
     action_type: &str, // "read" | "create" | "update" | "delete"
 ) -> Result<(), ApiError> {
     if target_tenant_id != caller_tenant_id {
-        let caller_tenant = crate::repositories::tenant_repository::TenantRepository::find_by_id(db, caller_tenant_id)
-            .await
-            .map_err(|e| ApiError::Internal(e.to_string()))?
-            .ok_or_else(|| ApiError::NotFound("Tenant de l'utilisateur introuvable".to_string()))?;
-        
+        let caller_tenant = crate::repositories::tenant_repository::TenantRepository::find_by_id(
+            db,
+            caller_tenant_id,
+        )
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound("Tenant de l'utilisateur introuvable".to_string()))?;
+
         if !caller_tenant.is_system {
-            return Err(ApiError::Unauthorized(
-                "Vous n'êtes pas autorisé à modifier ou accéder aux données d'un autre tenant.".to_string()
+            return Err(ApiError::Forbidden(
+                "Vous n'êtes pas autorisé à modifier ou accéder aux données d'un autre tenant."
+                    .to_string(),
             ));
         }
 
@@ -169,7 +173,11 @@ pub async fn require_tenant_access(
             "create" => "can_access_other_tenant_for_creation",
             "update" => "can_access_other_tenant_for_updating",
             "delete" => "can_access_other_tenant_for_deleting",
-            _ => return Err(ApiError::Internal("Action type invalide pour cross-tenant".to_string())),
+            _ => {
+                return Err(ApiError::Internal(
+                    "Action type invalide pour cross-tenant".to_string(),
+                ));
+            }
         };
 
         crate::utils::auth::require_permission(db, user_id, required_permission).await?;

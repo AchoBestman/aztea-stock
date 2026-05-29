@@ -387,6 +387,12 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ email, otp_code, new_password }),
       }),
+
+    verifyOtp: (email: string, otp_code: string) =>
+      request<LoginResponse>('/auth/verify-otp', {
+        method: 'POST',
+        body: JSON.stringify({ email, otp_code }),
+      }),
   },
 
   // Tenants management

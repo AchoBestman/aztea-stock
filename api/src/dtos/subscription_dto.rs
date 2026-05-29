@@ -4,10 +4,23 @@ use utoipa::ToSchema;
 #[derive(Deserialize, ToSchema, Clone, Debug)]
 pub struct CreateSubscriptionPayload {
     pub tenant_id: String,
-    pub plan: String, // starter, pro, enterprise
+    pub plan: String,   // starter, pro, enterprise
     pub status: String, // trial, active, suspended, cancelled
     pub price_monthly: f64,
     pub currency: Option<String>,
+    pub max_devices: i32,
+    pub expires_at: String, // ISO date string
+    pub trial_ends_at: Option<String>,
+    pub notes: Option<String>,
+}
+
+#[derive(Deserialize, ToSchema, Clone, Debug)]
+pub struct UpdateSubscriptionPayload {
+    pub plan: String,   // starter, pro, enterprise
+    pub status: String, // trial, active, suspended, cancelled
+    pub price_monthly: f64,
+    pub currency: Option<String>,
+    pub max_devices: i32,
     pub expires_at: String, // ISO date string
     pub trial_ends_at: Option<String>,
     pub notes: Option<String>,
@@ -27,6 +40,8 @@ pub struct SubscriptionResponse {
     pub price_monthly: f64,
     #[schema(example = "XAF")]
     pub currency: String,
+    #[schema(example = 3)]
+    pub max_devices: i32,
     #[schema(example = "2026-05-20T10:00:00Z")]
     pub started_at: String,
     #[schema(example = "2026-06-20T10:00:00Z")]
