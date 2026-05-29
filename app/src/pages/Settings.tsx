@@ -229,18 +229,26 @@ export default function Settings() {
           <div className="space-y-3 p-4 rounded-2xl bg-accent/30 border border-border/50 text-xs font-semibold">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Clé d'Activation :</span>
-              <span className="font-mono text-foreground font-extrabold">{licenseDetails?.license_key || licenseKey || 'Aucune'}</span>
+              <span className="font-mono text-foreground font-extrabold">{licenseDetails?.license_id || licenseKey || 'Aucune'}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Statut de la Licence :</span>
-              <span className={`uppercase font-bold ${licenseDetails?.is_valid ? 'text-emerald-500' : 'text-primary dark:text-amber-400'}`}>
+              <span className={`uppercase font-bold ${licenseDetails?.has_active_license || licenseStatus === 'active' || licenseStatus === 'production' ? 'text-emerald-500' : 'text-primary dark:text-amber-400'}`}>
                 {licenseDetails?.status || licenseStatus}
               </span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Expire le :</span>
               <span className="text-foreground">
-                {licenseDetails?.expires_at ? new Date(licenseDetails.expires_at).toLocaleDateString('fr-FR') : 'Jamais'}
+                {licenseDetails?.expires_at 
+                  ? `${new Date(licenseDetails.expires_at).toLocaleDateString('fr-FR')} ${
+                      licenseDetails.days_remaining !== null 
+                        ? licenseDetails.days_remaining > 0 
+                          ? `(dans ${licenseDetails.days_remaining} jours)` 
+                          : licenseDetails.days_remaining === 0 ? "(Aujourd'hui)" : "(Expiré)"
+                        : ''
+                    }`
+                  : 'Jamais'}
               </span>
             </div>
             <div className="flex justify-between">

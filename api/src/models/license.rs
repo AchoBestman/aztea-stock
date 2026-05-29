@@ -15,6 +15,7 @@ pub struct Model {
     pub last_verified_at: Option<DateTimeWithTimeZone>,
     pub activated_at: Option<DateTimeWithTimeZone>,
     pub revoked_at: Option<DateTimeWithTimeZone>,
+    pub expires_at: Option<DateTimeWithTimeZone>,
     pub status: String, // production, trial
     pub created_at: DateTimeWithTimeZone,
 }

@@ -62,7 +62,8 @@ export default function TenantDetail() {
     message: string;
     onConfirm: () => void;
   } | null>(null);
-  const { user: currentUser } = useAuthStore();
+  const [editUserId, setEditUserId] = useState<string | null>(null);
+  const { user: currentUser, systemTenant } = useAuthStore();
 
   const hasPermission = (p: string) => currentUser?.permissions.includes(p) || currentUser?.roles.includes("Super Admin");
 
@@ -291,6 +292,17 @@ export default function TenantDetail() {
     }
   };
 
+  const changeLicenseStatus = async (licId: string, status: string) => {
+    try {
+      await api.licenses.updateStatus(licId, status);
+      const refreshed = await api.licenses.list({ tenant_id: id!, per_page: 50 });
+      setLicenses(refreshed.data);
+      toast.success("Statut de la licence mis à jour");
+    } catch (err) {
+      toast.error(getErrMsg(err));
+    }
+  };
+
   const generateLicense = async () => {
     if (!id || !selectedSubId) return;
     try {
@@ -304,18 +316,29 @@ export default function TenantDetail() {
     }
   };
 
-  const createAdminUser = async (e: React.FormEvent) => {
+  const saveAdminUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!id) return;
     try {
-      await api.users.create({
-        name: newUser.name,
-        email: newUser.email,
-        role_id: newUser.role_id,
-        tenant_id: id,
-      });
-      toast.success("Utilisateur créé — invitation envoyée par email");
+      if (editUserId) {
+        await api.users.update({
+          user_id: editUserId,
+          name: newUser.name,
+          email: newUser.email,
+          role_id: newUser.role_id || undefined,
+        });
+        toast.success("Utilisateur mis à jour");
+      } else {
+        await api.users.create({
+          name: newUser.name,
+          email: newUser.email,
+          role_id: newUser.role_id,
+          tenant_id: id,
+        });
+        toast.success("Utilisateur créé — invitation envoyée par email");
+      }
       setUserModal(false);
+      setEditUserId(null);
       setNewUser({ name: "", email: "", role_id: "" });
       const us = await api.users.list(id);
       setUsers(us);
@@ -602,12 +625,26 @@ export default function TenantDetail() {
                     <span className="ml-2 text-xs text-muted-foreground">[{u.roles.join(", ")}]</span>
                   )}
                 </span>
-                <span className="flex items-center gap-1">
+                 <span className="flex items-center gap-1">
                   {hasPermission("can_manage_two_factor_for_user") && (
                     <div className="flex items-center gap-2 mr-2 border border-border p-1.5 rounded-lg">
                       <span className="text-[10px] font-bold uppercase text-muted-foreground">2FA</span>
                       <Switch checked={u.two_factor_enabled} onChange={() => void toggleUser2FA(u)} />
                     </div>
+                  )}
+                  {systemTenant && hasPermission("can_manage_tenant_users") && (
+                    <button
+                      type="button"
+                      title="Modifier"
+                      onClick={() => {
+                        setEditUserId(u.id);
+                        setNewUser({ name: u.name, email: u.email, role_id: "" });
+                        setUserModal(true);
+                      }}
+                      className="p-2 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
+                    >
+                      <Pencil className="w-5 h-5" />
+                    </button>
                   )}
                   <button
                     type="button"
@@ -658,25 +695,30 @@ export default function TenantDetail() {
                     </span>
                   </div>
                   <div className="flex items-center gap-1">
-                    <select
-                      className="text-xs rounded-lg border border-border bg-background px-2 py-1 cursor-pointer"
-                      value={s.status}
-                      onChange={(e) => void changeSubStatus(s.id, e.target.value)}
-                      title="Modifier le statut"
-                    >
-                      <option value="trial">Trial</option>
-                      <option value="active">Actif</option>
-                      <option value="suspended">Suspendu</option>
-                      <option value="cancelled">Annulé</option>
-                    </select>
-                    <button
-                      type="button"
-                      title="Supprimer"
-                      onClick={() => void deleteSubscription(s.id)}
-                      className="p-1.5 rounded-lg hover:bg-accent text-destructive cursor-pointer"
-                    >
-                      ×
-                    </button>
+                    {systemTenant && (
+                      <>
+                        <select
+                          className="text-xs rounded-lg border border-border bg-background px-2 py-1 cursor-pointer"
+                          value={s.status}
+                          onChange={(e) => void changeSubStatus(s.id, e.target.value)}
+                          title="Modifier le statut"
+                        >
+                          <option value="trial">Trial</option>
+                          <option value="active">Actif</option>
+                          <option value="production">Production</option>
+                          <option value="suspended">Suspendu</option>
+                          <option value="cancelled">Annulé</option>
+                        </select>
+                        <button
+                          type="button"
+                          title="Supprimer"
+                          onClick={() => void deleteSubscription(s.id)}
+                          className="p-1.5 rounded-lg hover:bg-accent text-destructive cursor-pointer"
+                        >
+                          ×
+                        </button>
+                      </>
+                    )}
                   </div>
                 </li>
               ))}
@@ -721,7 +763,20 @@ export default function TenantDetail() {
                       {l.activated_at ? "Activée" : "En attente"}
                     </span>
                   </div>
-                  <div className="flex items-center gap-1">
+                   <div className="flex items-center gap-2">
+                    {systemTenant && hasPermission("can_manage_licenses") && (
+                      <select
+                        className="text-[10px] rounded-lg border border-border bg-background px-1.5 py-1 cursor-pointer"
+                        value={l.status || (l.activated_at ? "active" : "trial")}
+                        onChange={(e) => void changeLicenseStatus(l.id, e.target.value)}
+                      >
+                        <option value="trial">Trial</option>
+                        <option value="production">Production</option>
+                        <option value="active">Actif</option>
+                        <option value="suspended">Suspendu</option>
+                        <option value="revoked">Révoqué</option>
+                      </select>
+                    )}
                     <button
                       type="button"
                       title={revealedKeys[l.id] ? "Clé révélée" : "Voir la clé"}
@@ -861,8 +916,11 @@ export default function TenantDetail() {
       )}
 
       {userModal && (
-        <Modal title="Créer un administrateur" onClose={() => setUserModal(false)}>
-          <form onSubmit={createAdminUser} className="space-y-4">
+        <Modal 
+          title={editUserId ? "Modifier l'administrateur" : "Créer un administrateur"} 
+          onClose={() => { setUserModal(false); setEditUserId(null); }}
+        >
+          <form onSubmit={saveAdminUser} className="space-y-4">
             <input
               required
               placeholder="Nom"

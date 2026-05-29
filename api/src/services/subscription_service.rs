@@ -182,6 +182,21 @@ impl SubscriptionService {
             .await?;
         }
 
+        // Deactivate licenses if status changed to suspended or cancelled
+        if payload.status == "suspended" || payload.status == "cancelled" {
+            let lics = crate::models::license::Entity::find()
+                .filter(crate::models::license::Column::SubscriptionId.eq(subscription_id))
+                .filter(crate::models::license::Column::IsActive.eq(true))
+                .all(db)
+                .await?;
+
+            for lic in lics {
+                let mut active_lic: crate::models::license::ActiveModel = lic.into();
+                active_lic.is_active = Set(Some(false));
+                let _ = active_lic.update(db).await;
+            }
+        }
+
         Ok(Self::map_to_response(updated))
     }
 
@@ -271,12 +286,20 @@ impl SubscriptionService {
         caller_tenant_id: &str,
     ) -> Result<(), ApiError> {
         use sea_orm::EntityTrait;
+        use sea_orm::QueryFilter;
         crate::utils::auth::assert_system_admin_access(db, caller_user_id, caller_tenant_id)
             .await?;
         subscription::Entity::find_by_id(subscription_id)
             .one(db)
             .await?
             .ok_or_else(|| ApiError::NotFound("Abonnement introuvable".to_string()))?;
+            
+        // Explicitly delete all licenses related to this subscription
+        crate::models::license::Entity::delete_many()
+            .filter(crate::models::license::Column::SubscriptionId.eq(subscription_id))
+            .exec(db)
+            .await?;
+
         subscription::Entity::delete_by_id(subscription_id)
             .exec(db)
             .await?;
@@ -291,6 +314,7 @@ impl SubscriptionService {
         caller_tenant_id: &str,
     ) -> Result<SubscriptionResponse, ApiError> {
         use sea_orm::EntityTrait;
+        use sea_orm::QueryFilter;
         crate::utils::auth::assert_system_admin_access(db, caller_user_id, caller_tenant_id)
             .await?;
         let sub = subscription::Entity::find_by_id(subscription_id)
@@ -304,6 +328,21 @@ impl SubscriptionService {
             active.cancelled_at = Set(Some(chrono::Utc::now().fixed_offset()));
         }
         let updated = active.update(db).await?;
+
+        if payload.status == "suspended" || payload.status == "cancelled" {
+            let lics = crate::models::license::Entity::find()
+                .filter(crate::models::license::Column::SubscriptionId.eq(subscription_id))
+                .filter(crate::models::license::Column::IsActive.eq(true))
+                .all(db)
+                .await?;
+
+            for lic in lics {
+                let mut active_lic: crate::models::license::ActiveModel = lic.into();
+                active_lic.is_active = Set(Some(false));
+                let _ = active_lic.update(db).await;
+            }
+        }
+
         Ok(Self::map_to_response(updated))
     }
 }

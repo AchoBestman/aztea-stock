@@ -215,8 +215,8 @@ pub async fn login(
     let tenant_requires_2fa = tenant_model.two_factor_enabled;
 
     if user_requires_2fa || tenant_requires_2fa {
-        use sea_orm::ActiveModelTrait;
         use rand::Rng;
+        use sea_orm::ActiveModelTrait;
 
         // Generate 6-digit OTP
         let code: String = (0..6)
@@ -232,13 +232,20 @@ pub async fn login(
         user_active.update(db).await?;
 
         // Send email
-        crate::services::email_service::send_otp_email(&state, &tenant_model.id, &payload.email, &code)
-            .await
-            .map_err(|e| ApiError::Internal(format!("Erreur d'envoi d'email: {}", e)))?;
+        crate::services::email_service::send_otp_email(
+            &state,
+            &tenant_model.id,
+            &payload.email,
+            &code,
+        )
+        .await
+        .map_err(|e| ApiError::Internal(format!("Erreur d'envoi d'email: {}", e)))?;
 
         return Ok(Json(LoginResponse {
             requires_two_factor: true,
-            message: Some("Un code de vérification a été envoyé à votre adresse email.".to_string()),
+            message: Some(
+                "Un code de vérification a été envoyé à votre adresse email.".to_string(),
+            ),
             access_token: None,
             refresh_token: None,
             expires_in: None,
@@ -271,7 +278,9 @@ pub async fn verify_otp(
     Json(payload): Json<VerifyOtpPayload>,
 ) -> Result<Json<LoginResponse>, ApiError> {
     let db = state.db.as_ref().ok_or_else(|| {
-        ApiError::Database(sea_orm::DbErr::Custom("Connexion base de données indisponible".to_string()))
+        ApiError::Database(sea_orm::DbErr::Custom(
+            "Connexion base de données indisponible".to_string(),
+        ))
     })?;
 
     // Find user
@@ -284,19 +293,27 @@ pub async fn verify_otp(
     // Verify OTP
     if let Some(ref stored_code) = user_model.two_factor_code {
         if stored_code != &payload.otp_code {
-            return Err(ApiError::Unauthorized("Code de vérification incorrect".to_string()));
+            return Err(ApiError::Unauthorized(
+                "Code de vérification incorrect".to_string(),
+            ));
         }
     } else {
-        return Err(ApiError::BadRequest("Aucun code de vérification n'a été demandé".to_string()));
+        return Err(ApiError::BadRequest(
+            "Aucun code de vérification n'a été demandé".to_string(),
+        ));
     }
 
     // Verify Expiration
     if let Some(expires_at) = user_model.two_factor_expires_at {
         if chrono::Utc::now().fixed_offset() > expires_at {
-            return Err(ApiError::BadRequest("Le code de vérification a expiré".to_string()));
+            return Err(ApiError::BadRequest(
+                "Le code de vérification a expiré".to_string(),
+            ));
         }
     } else {
-        return Err(ApiError::BadRequest("Le code de vérification a expiré".to_string()));
+        return Err(ApiError::BadRequest(
+            "Le code de vérification a expiré".to_string(),
+        ));
     }
 
     let tenant_model = tenant::Entity::find_by_id(&user_model.tenant_id)
@@ -305,7 +322,9 @@ pub async fn verify_otp(
         .ok_or_else(|| ApiError::Unauthorized("Tenant introuvable".to_string()))?;
 
     if tenant_model.is_active == Some(false) {
-        return Err(ApiError::Unauthorized("Le compte de votre entreprise est inactif".to_string()));
+        return Err(ApiError::Unauthorized(
+            "Le compte de votre entreprise est inactif".to_string(),
+        ));
     }
 
     // Clear OTP
@@ -368,12 +387,8 @@ pub async fn update_profile(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<UpdateProfilePayload>,
 ) -> Result<Json<UserProfileResponse>, ApiError> {
-    let db = state
-        .db
-        .as_ref()
-        .ok_or_else(|| ApiError::Internal("La base de données n'est pas disponible".to_string()))?;
-
-    let profile = UserService::update_profile(db, &claims.sub, &claims.tenant_id, payload).await?;
+    let profile =
+        UserService::update_profile(&state, &claims.sub, &claims.tenant_id, payload).await?;
     Ok(Json(profile))
 }
 
@@ -458,10 +473,11 @@ pub async fn get_device_key(
     Extension(claims): Extension<Claims>,
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let db = state.db.as_ref().ok_or_else(|| {
-        ApiError::Internal("La base de données n'est pas disponible".to_string())
-    })?;
-    
+    let db = state
+        .db
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("La base de données n'est pas disponible".to_string()))?;
+
     // Authenticate/verify user exists
     let _user = user::Entity::find_by_id(&claims.sub)
         .one(db)

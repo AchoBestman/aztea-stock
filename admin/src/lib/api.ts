@@ -32,6 +32,7 @@ export interface UserProfileTenant {
   business_type: string;
   created_at: string;
   is_active: boolean | null;
+  is_system: boolean;
 }
 
 export interface UserProfile {
@@ -444,6 +445,12 @@ export const api = {
       request<{ success: boolean; message: string }>(`/admin/licenses/${id}/send-key`, {
         method: "POST",
       }),
+
+    updateStatus: (id: string, status: string) =>
+      request<License>(`/admin/licenses/${id}/status`, {
+        method: "PUT",
+        body: JSON.stringify({ status }),
+      }),
   },
 
   sync: {
@@ -488,6 +495,12 @@ export const api = {
       request<AdminUser>("/admin/users/two-factor", {
         method: "POST",
         body: JSON.stringify({ user_id, two_factor_enabled }),
+      }),
+
+    update: (payload: { user_id: string; name?: string; email?: string; is_active?: boolean; role_id?: string }) =>
+      request<UserProfile>("/auth/profile", {
+        method: "PUT",
+        body: JSON.stringify(payload),
       }),
   },
 

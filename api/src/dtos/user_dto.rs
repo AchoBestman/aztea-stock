@@ -66,6 +66,7 @@ pub struct UserProfileTenantResponse {
     pub logo_url: Option<String>,
     pub created_at: chrono::DateTime<chrono::FixedOffset>,
     pub is_active: Option<bool>,
+    pub is_system: bool,
 }
 
 impl UserProfileTenantResponse {
@@ -80,6 +81,7 @@ impl UserProfileTenantResponse {
             logo_url: tenant.logo_url.clone(),
             created_at: tenant.created_at,
             is_active: tenant.is_active,
+            is_system: tenant.is_system,
         }
     }
 }
@@ -100,6 +102,8 @@ pub struct UserProfileResponse {
 pub struct UpdateProfilePayload {
     pub user_id: Option<String>,
     pub name: Option<String>,
+    pub email: Option<String>,
     pub is_active: Option<bool>,
     pub two_factor_enabled: Option<bool>,
+    pub role_id: Option<String>,
 }

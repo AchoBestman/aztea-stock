@@ -16,7 +16,7 @@ interface AuthState {
   permissions: string[];
   roles: string[];
   licenseKey: string | null;
-  licenseStatus: 'active' | 'trial' | 'expired' | 'suspended' | 'revoked';
+  licenseStatus: 'active' | 'trial' | 'expired' | 'suspended' | 'revoked' | 'production';
   trialDaysLeft: number;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<'success' | '2fa' | false>;

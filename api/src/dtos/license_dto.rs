@@ -36,6 +36,8 @@ pub struct LicenseResponse {
     pub activated_at: Option<String>,
     #[schema(nullable)]
     pub revoked_at: Option<String>,
+    #[schema(example = "2026-06-20T10:00:00Z")]
+    pub expires_at: Option<String>,
     #[schema(example = "production")]
     pub status: String,
     #[schema(example = "2026-05-20T10:00:00Z")]

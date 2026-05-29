@@ -28,6 +28,7 @@ impl LicenseService {
             last_verified_at: model.last_verified_at.map(|d| d.to_rfc3339()),
             activated_at: model.activated_at.map(|d| d.to_rfc3339()),
             revoked_at: model.revoked_at.map(|d| d.to_rfc3339()),
+            expires_at: model.expires_at.map(|d| d.to_rfc3339()),
             status: model.status,
             created_at: model.created_at.to_rfc3339(),
         }
@@ -80,13 +81,18 @@ impl LicenseService {
         let plain_key = Self::generate_random_key();
         let encrypted_key = encrypt(&plain_key);
 
+        let sub_duration = sub.expires_at - sub.started_at;
+        let now = chrono::Utc::now().fixed_offset();
+        let license_expires_at = now + sub_duration;
+
         let lic = license::ActiveModel {
             id: Set(id.clone()),
             tenant_id: Set(payload.tenant_id.clone()),
             subscription_id: Set(payload.subscription_id.clone()),
             license_key: Set(encrypted_key),
             is_active: Set(Some(true)),
-            created_at: Set(chrono::Utc::now().fixed_offset()),
+            expires_at: Set(Some(license_expires_at)),
+            created_at: Set(now),
             ..Default::default()
         };
 
@@ -288,7 +294,7 @@ impl LicenseService {
                 let (plan, expires_at, days_remaining, renewal_alert, sub_status) = match sub {
                     None => (None, None, None, false, "expired".to_string()),
                     Some(s) => {
-                        let expires = s.expires_at;
+                        let expires = lic.expires_at.unwrap_or(s.expires_at);
                         let now = chrono::Utc::now();
                         let days = (expires.with_timezone(&chrono::Utc) - now).num_days();
                         let alert = days <= 7;
@@ -447,6 +453,25 @@ impl LicenseService {
             }
         }
 
+        // 1.5. Deactivate all expired individual licenses
+        let expired_licenses = license::Entity::find()
+            .filter(license::Column::IsActive.eq(true))
+            .filter(license::Column::ExpiresAt.lt(now))
+            .all(db)
+            .await
+            .unwrap_or_default();
+            
+        for lic in expired_licenses {
+            tracing::info!(
+                "[LicenseTask] Deactivating expired license {} for tenant {}",
+                lic.id,
+                lic.tenant_id
+            );
+            let mut active_lic: license::ActiveModel = lic.into();
+            active_lic.is_active = sea_orm::Set(Some(false));
+            let _ = sea_orm::ActiveModelTrait::update(active_lic, db).await;
+        }
+
         // 2. Notify tenants whose subscriptions expire within 7 days
         let expiring_soon = subscription::Entity::find()
             .filter(subscription::Column::Status.eq("active"))
@@ -501,6 +526,15 @@ impl LicenseService {
             .await?
             .ok_or_else(|| ApiError::NotFound("Entreprise introuvable".to_string()))?;
 
+        let sub = subscription::Entity::find_by_id(subscription_id)
+            .one(db)
+            .await?
+            .ok_or_else(|| ApiError::NotFound("Abonnement introuvable".to_string()))?;
+            
+        let sub_duration = sub.expires_at - sub.started_at;
+        let now = chrono::Utc::now().fixed_offset();
+        let license_expires_at = now + sub_duration;
+
         // 2. Generate and store N licenses
         for _ in 0..count {
             let id = uuid::Uuid::new_v4().to_string();
@@ -514,7 +548,8 @@ impl LicenseService {
                 license_key: Set(encrypted_key),
                 status: Set(status.to_string()),
                 is_active: Set(Some(true)),
-                created_at: Set(chrono::Utc::now().fixed_offset()),
+                expires_at: Set(Some(license_expires_at)),
+                created_at: Set(now),
                 ..Default::default()
             };
 

@@ -352,11 +352,15 @@ impl UserService {
     }
 
     pub async fn update_profile(
-        db: &DatabaseConnection,
+        state: &AppState,
         caller_user_id: &str,
         caller_tenant_id: &str,
         payload: crate::dtos::user_dto::UpdateProfilePayload,
     ) -> Result<crate::dtos::user_dto::UserProfileResponse, ApiError> {
+        let db = state
+            .db
+            .as_ref()
+            .ok_or_else(|| ApiError::Internal("DB error".into()))?;
         use crate::models::user;
         use crate::utils::auth::check_permission;
         use sea_orm::{ActiveModelTrait, EntityTrait, Set};
@@ -432,11 +436,19 @@ impl UserService {
             }
         }
 
-        // 4. Apply changes
-        let mut active_user: user::ActiveModel = target_user.into();
+        // 4. Apply changes (with email change detection)
+        let mut active_user: user::ActiveModel = target_user.clone().into();
+        let old_email = target_user.email.clone();
+        let mut email_changed = false;
 
         if let Some(name) = payload.name {
             active_user.name = Set(name);
+        }
+        if let Some(email) = payload.email {
+            if email != old_email {
+                active_user.email = Set(email);
+                email_changed = true;
+            }
         }
         if let Some(is_active) = payload.is_active {
             active_user.is_active = Set(Some(is_active));
@@ -447,7 +459,38 @@ impl UserService {
 
         let updated_user = active_user.update(db).await?;
 
-        // 5. Return updated profile
+        // 5. Update Roles if provided
+        if let Some(role_id) = payload.role_id {
+            // Remove existing roles and assign new one
+            UserRepository::clear_roles(db, &target_user_id).await?;
+            UserRepository::assign_role(db, &target_user_id, &role_id).await?;
+        }
+
+        // 6. Handle email change (send activation/reset code)
+        if email_changed {
+            let mut user_for_code = updated_user.clone();
+            let code: String = (0..6)
+                .map(|_| rand::thread_rng().sample(rand::distributions::Alphanumeric) as char)
+                .collect::<String>()
+                .to_uppercase();
+
+            user_for_code.two_factor_code = Some(code.clone());
+            user_for_code.two_factor_expires_at =
+                Some((chrono::Utc::now() + chrono::Duration::hours(24)).fixed_offset());
+
+            UserRepository::update(db, user_for_code).await?;
+
+            // Trigger background email
+            let _ = crate::services::email_service::send_password_reset_email(
+                state,
+                &updated_user.tenant_id,
+                &updated_user.email,
+                &code,
+            )
+            .await;
+        }
+
+        // 7. Return updated profile
         Self::get_profile(db, &updated_user.id).await
     }
 }

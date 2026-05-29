@@ -141,4 +141,12 @@ impl UserRepository {
         active_model.insert(db).await?;
         Ok(())
     }
+
+    pub async fn clear_roles(db: &DatabaseConnection, user_id: &str) -> Result<u64, DbErr> {
+        user_role::Entity::delete_many()
+            .filter(user_role::Column::UserId.eq(user_id))
+            .exec(db)
+            .await
+            .map(|r| r.rows_affected)
+    }
 }

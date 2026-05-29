@@ -263,7 +263,7 @@ export interface TenantResponse {
 
 export interface LicenseStatusResponse {
   has_active_license: boolean;
-  status: 'active' | 'trial' | 'expired' | 'suspended' | 'revoked';
+  status: 'active' | 'trial' | 'expired' | 'suspended' | 'revoked' | 'production';
   license_id: string | null;
   subscription_plan: string | null;
   expires_at: string | null;
