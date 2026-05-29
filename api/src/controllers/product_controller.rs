@@ -48,7 +48,7 @@ pub async fn create_product(
         ApiError::Internal("La base de données n'est pas disponible".to_string())
     })?;
 
-    require_permission(db, &claims.sub, "can_manage_product").await?;
+    require_permission(db, &claims.sub, "can_create_product").await?;
 
     let product = ProductService::create_product(
         db,
@@ -174,7 +174,7 @@ pub async fn update_product(
         ApiError::Internal("La base de données n'est pas disponible".to_string())
     })?;
 
-    require_permission(db, &claims.sub, "can_manage_product").await?;
+    require_permission(db, &claims.sub, "can_update_product").await?;
 
     let product = ProductService::update_product(db, &id, &claims.sub, &claims.tenant_id, payload).await?;
     Ok(Json(product))
@@ -205,7 +205,7 @@ pub async fn delete_product(
         ApiError::Internal("La base de données n'est pas disponible".to_string())
     })?;
 
-    require_permission(db, &claims.sub, "can_manage_product").await?;
+    require_permission(db, &claims.sub, "can_delete_product").await?;
 
     let product = ProductService::delete_product(db, &id, &claims.sub, &claims.tenant_id).await?;
     Ok(Json(product))
