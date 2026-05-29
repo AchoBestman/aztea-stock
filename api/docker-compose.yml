@@ -1,0 +1,62 @@
+services:
+  mysql:
+    image: 'mysql:8.0'
+    ports:
+      - '${FORWARD_DB_PORT:-3306}:3306'
+    environment:
+      MYSQL_ROOT_PASSWORD: '${DB_PASSWORD:-password}'
+      MYSQL_ROOT_HOST: '%'
+      MYSQL_DATABASE: '${DB_DATABASE:-azteastock}'
+      MYSQL_ALLOW_EMPTY_PASSWORD: 1
+    volumes:
+      - 'aztea-mysql:/var/lib/mysql'
+    networks:
+      - aztea-network
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-p${DB_PASSWORD:-password}" ]
+      retries: 3
+      timeout: 5s
+
+  phpmyadmin:
+    image: 'phpmyadmin:latest'
+    ports:
+      - '8080:80'
+    environment:
+      PMA_HOST: mysql
+      PMA_USER: root
+      PMA_PASSWORD: '${DB_PASSWORD:-password}'
+    networks:
+      - aztea-network
+    depends_on:
+      - mysql
+
+  mailpit:
+    image: 'axllent/mailpit:latest'
+    ports:
+      - '${FORWARD_MAILPIT_PORT:-1025}:1025'
+      - '${FORWARD_MAILPIT_DASHBOARD_PORT:-8025}:8025'
+    networks:
+      - aztea-network
+
+  redis:
+    image: 'redis:alpine'
+    ports:
+      - '${FORWARD_REDIS_PORT:-6379}:6379'
+    volumes:
+      - 'aztea-redis:/data'
+    networks:
+      - aztea-network
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      retries: 3
+      timeout: 5s
+
+networks:
+  aztea-network:
+    driver: bridge
+
+volumes:
+  aztea-mysql:
+    driver: local
+  aztea-redis:
+    driver: local

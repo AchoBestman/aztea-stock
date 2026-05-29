@@ -9,7 +9,7 @@ CREATE TABLE stock_movements (
     quantity_after  DECIMAL(10,2) NOT NULL,
     reference_id    VARCHAR(100),
     note            TEXT,
-    occurred_at     TIMESTAMP NOT NULL
+    occurred_at     DATETIME NOT NULL
 );
 
 CREATE INDEX idx_stock_movements_tenant_id ON stock_movements(tenant_id);

@@ -1,12 +1,12 @@
-use sea_orm::DatabaseConnection;
-use bcrypt::{hash, DEFAULT_COST};
+use bcrypt::{DEFAULT_COST, hash};
 use rand::Rng;
+use sea_orm::DatabaseConnection;
 
 use crate::{
     AppState,
+    dtos::user_dto::{CreateUserPayload, UserResponse},
     errors::ApiError,
     repositories::user_repository::UserRepository,
-    dtos::user_dto::{CreateUserPayload, UserResponse},
     services::email_service::send_password_reset_email,
 };
 
@@ -28,7 +28,8 @@ impl UserService {
 
             if !caller_tenant.is_system {
                 return Err(ApiError::Forbidden(
-                    "Seul le tenant système peut lister les utilisateurs d'un autre tenant.".to_string(),
+                    "Seul le tenant système peut lister les utilisateurs d'un autre tenant."
+                        .to_string(),
                 ));
             }
 
@@ -60,9 +61,10 @@ impl UserService {
         caller_tenant_id: &str,
         payload: CreateUserPayload,
     ) -> Result<UserResponse, ApiError> {
-        let db = state.db.as_ref().ok_or_else(|| {
-            ApiError::Internal("Base de données indisponible".to_string())
-        })?;
+        let db = state
+            .db
+            .as_ref()
+            .ok_or_else(|| ApiError::Internal("Base de données indisponible".to_string()))?;
 
         // Resolve target tenant
         let mut target_tenant_id = caller_tenant_id.to_string();
@@ -76,15 +78,29 @@ impl UserService {
             if caller_tenant.is_system {
                 target_tenant_id = requested_tenant.clone();
                 // Enforce cross-tenant permission check
-                crate::utils::auth::require_tenant_access(db, caller_tenant_id, &target_tenant_id, caller_user_id, "create").await?;
+                crate::utils::auth::require_tenant_access(
+                    db,
+                    caller_tenant_id,
+                    &target_tenant_id,
+                    caller_user_id,
+                    "create",
+                )
+                .await?;
             } else {
-                return Err(ApiError::Forbidden("Seul le tenant système peut spécifier un tenant_id".to_string()));
+                return Err(ApiError::Forbidden(
+                    "Seul le tenant système peut spécifier un tenant_id".to_string(),
+                ));
             }
         }
 
         // 1. Check if user already exists
-        if UserRepository::find_by_email(db, &payload.email).await?.is_some() {
-            return Err(ApiError::BadRequest("Un utilisateur avec cet email existe déjà".to_string()));
+        if UserRepository::find_by_email(db, &payload.email)
+            .await?
+            .is_some()
+        {
+            return Err(ApiError::BadRequest(
+                "Un utilisateur avec cet email existe déjà".to_string(),
+            ));
         }
 
         // 2. Generate a random password and hash it
@@ -116,9 +132,8 @@ impl UserService {
             .to_uppercase();
 
         user.two_factor_code = Some(code.clone());
-        user.two_factor_expires_at = Some(
-            (chrono::Utc::now() + chrono::Duration::hours(24)).fixed_offset(),
-        );
+        user.two_factor_expires_at =
+            Some((chrono::Utc::now() + chrono::Duration::hours(24)).fixed_offset());
         let user = UserRepository::update(db, user).await?;
 
         // 6. Send invitation/password reset email
@@ -150,9 +165,10 @@ impl UserService {
         caller_tenant_id: &str,
         email: &str,
     ) -> Result<(), ApiError> {
-        let db = state.db.as_ref().ok_or_else(|| {
-            ApiError::Internal("Base de données indisponible".to_string())
-        })?;
+        let db = state
+            .db
+            .as_ref()
+            .ok_or_else(|| ApiError::Internal("Base de données indisponible".to_string()))?;
 
         // System tenants can invite users from any tenant; regular tenants are scoped.
         let caller_is_system = {
@@ -171,7 +187,9 @@ impl UserService {
         } else {
             UserRepository::find_by_email_and_tenant(db, email, caller_tenant_id)
                 .await?
-                .ok_or_else(|| ApiError::NotFound("Utilisateur introuvable pour ce tenant".to_string()))?
+                .ok_or_else(|| {
+                    ApiError::NotFound("Utilisateur introuvable pour ce tenant".to_string())
+                })?
         };
 
         // Generate 6-digit random code
@@ -181,9 +199,8 @@ impl UserService {
             .to_uppercase();
 
         user.two_factor_code = Some(code.clone());
-        user.two_factor_expires_at = Some(
-            (chrono::Utc::now() + chrono::Duration::hours(1)).fixed_offset(),
-        );
+        user.two_factor_expires_at =
+            Some((chrono::Utc::now() + chrono::Duration::hours(1)).fixed_offset());
         let actual_tenant_id = user.tenant_id.clone();
         UserRepository::update(db, user).await?;
 
@@ -193,13 +210,11 @@ impl UserService {
         Ok(())
     }
 
-    pub async fn send_public_password_reset(
-        state: &AppState,
-        email: &str,
-    ) -> Result<(), ApiError> {
-        let db = state.db.as_ref().ok_or_else(|| {
-            ApiError::Internal("Base de données indisponible".to_string())
-        })?;
+    pub async fn send_public_password_reset(state: &AppState, email: &str) -> Result<(), ApiError> {
+        let db = state
+            .db
+            .as_ref()
+            .ok_or_else(|| ApiError::Internal("Base de données indisponible".to_string()))?;
 
         let mut user = UserRepository::find_by_email(db, email)
             .await?
@@ -211,9 +226,8 @@ impl UserService {
             .to_uppercase();
 
         user.two_factor_code = Some(code.clone());
-        user.two_factor_expires_at = Some(
-            (chrono::Utc::now() + chrono::Duration::hours(1)).fixed_offset(),
-        );
+        user.two_factor_expires_at =
+            Some((chrono::Utc::now() + chrono::Duration::hours(1)).fixed_offset());
         let tenant_id = user.tenant_id.clone();
         UserRepository::update(db, user).await?;
 
@@ -234,18 +248,26 @@ impl UserService {
 
         if let Some(ref stored_code) = user.two_factor_code {
             if stored_code != otp_code {
-                return Err(ApiError::BadRequest("Code de validation incorrect".to_string()));
+                return Err(ApiError::BadRequest(
+                    "Code de validation incorrect".to_string(),
+                ));
             }
         } else {
-            return Err(ApiError::BadRequest("Aucun code de validation n'a été demandé".to_string()));
+            return Err(ApiError::BadRequest(
+                "Aucun code de validation n'a été demandé".to_string(),
+            ));
         }
 
         if let Some(expires_at) = user.two_factor_expires_at {
             if chrono::Utc::now().fixed_offset() > expires_at {
-                return Err(ApiError::BadRequest("Le code de validation a expiré".to_string()));
+                return Err(ApiError::BadRequest(
+                    "Le code de validation a expiré".to_string(),
+                ));
             }
         } else {
-            return Err(ApiError::BadRequest("Le code de validation a expiré".to_string()));
+            return Err(ApiError::BadRequest(
+                "Le code de validation a expiré".to_string(),
+            ));
         }
 
         let password_hash = hash(new_password, DEFAULT_COST)
@@ -299,8 +321,8 @@ impl UserService {
         db: &DatabaseConnection,
         user_id: &str,
     ) -> Result<crate::dtos::user_dto::UserProfileResponse, ApiError> {
+        use crate::models::{tenant, user};
         use sea_orm::EntityTrait;
-        use crate::models::{user, tenant};
 
         // 1. Fetch user
         let user = user::Entity::find_by_id(user_id.to_string())
@@ -335,12 +357,15 @@ impl UserService {
         caller_tenant_id: &str,
         payload: crate::dtos::user_dto::UpdateProfilePayload,
     ) -> Result<crate::dtos::user_dto::UserProfileResponse, ApiError> {
-        use sea_orm::{EntityTrait, ActiveModelTrait, Set};
         use crate::models::user;
         use crate::utils::auth::check_permission;
+        use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 
         // 1. Determine target user_id (if not provided, it's the caller themselves)
-        let target_user_id = payload.user_id.clone().unwrap_or_else(|| caller_user_id.to_string());
+        let target_user_id = payload
+            .user_id
+            .clone()
+            .unwrap_or_else(|| caller_user_id.to_string());
         let is_self = target_user_id == caller_user_id;
 
         // 2. Fetch target user
@@ -349,11 +374,24 @@ impl UserService {
             .await?
             .ok_or_else(|| ApiError::NotFound("Utilisateur introuvable".to_string()))?;
 
-        let is_system_sa = crate::services::role_service::RoleService::is_system_super_admin(db, caller_user_id, caller_tenant_id).await.unwrap_or(false);
+        let is_system_sa = crate::services::role_service::RoleService::is_system_super_admin(
+            db,
+            caller_user_id,
+            caller_tenant_id,
+        )
+        .await
+        .unwrap_or(false);
 
         // Multi-tenant check: even for system super admin, we must enforce cross-tenant boundaries
         if target_user.tenant_id != caller_tenant_id {
-            crate::utils::auth::require_tenant_access(db, caller_tenant_id, &target_user.tenant_id, caller_user_id, "update").await?;
+            crate::utils::auth::require_tenant_access(
+                db,
+                caller_tenant_id,
+                &target_user.tenant_id,
+                caller_user_id,
+                "update",
+            )
+            .await?;
         }
 
         if !is_system_sa {
@@ -361,24 +399,31 @@ impl UserService {
             if payload.name.is_some() {
                 if !is_self {
                     return Err(ApiError::Forbidden(
-                        "Vous ne pouvez pas modifier le nom d'un autre utilisateur.".to_string()
+                        "Vous ne pouvez pas modifier le nom d'un autre utilisateur.".to_string(),
                     ));
                 }
             }
 
             // B. If changing is_active (status)
             if payload.is_active.is_some() {
-                let has_status_perm = check_permission(db, caller_user_id, "can_update_user_status").await.unwrap_or(false);
+                let has_status_perm =
+                    check_permission(db, caller_user_id, "can_update_user_status")
+                        .await
+                        .unwrap_or(false);
                 if !has_status_perm {
                     return Err(ApiError::Forbidden(
-                        "Vous n'avez pas la permission de modifier le statut d'un utilisateur.".to_string()
+                        "Vous n'avez pas la permission de modifier le statut d'un utilisateur."
+                            .to_string(),
                     ));
                 }
             }
 
             // C. If changing two_factor_enabled
             if payload.two_factor_enabled.is_some() {
-                let has_2fa_perm = check_permission(db, caller_user_id, "can_update_user_two_factor").await.unwrap_or(false);
+                let has_2fa_perm =
+                    check_permission(db, caller_user_id, "can_manage_two_factor_for_user")
+                        .await
+                        .unwrap_or(false);
                 if !has_2fa_perm {
                     return Err(ApiError::Forbidden(
                         "Vous n'avez pas la permission de modifier la double authentification d'un utilisateur.".to_string()

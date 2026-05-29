@@ -65,7 +65,7 @@ export default function Login() {
           <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
             AzteaStock
           </p>
-          <h1 className="text-2xl font-bold mt-1">Panneau Super-Admin</h1>
+          <h1 className="text-2xl font-bold mt-1">Panneau d'administration</h1>
           <p className="text-sm text-muted-foreground mt-2">
             Compte du tenant système uniquement
           </p>

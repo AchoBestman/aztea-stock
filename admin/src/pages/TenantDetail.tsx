@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, KeyRound, Mail, Pencil, Power, ShieldPlus, UserPlus } from "lucide-react";
+import { ArrowLeft, KeyRound, Mail, Pencil, Power, ShieldPlus, Trash2, UserPlus } from "lucide-react";
 import toast from "react-hot-toast";
 import {
   api,
@@ -20,6 +20,9 @@ import GeoFields, { type GeoValues } from "../components/GeoFields";
 import AvatarUpload from "../components/AvatarUpload";
 import LogoUrlField from "../components/LogoUrlField";
 import { useR2UploadAvailable } from "../hooks/useR2Upload";
+import { useAuthStore } from "../store/authStore";
+import { Switch } from "@/components/Switch";
+import ConfirmModal from "../components/ConfirmModal";
 
 export default function TenantDetail() {
   const r2UploadAvailable = useR2UploadAvailable();
@@ -46,6 +49,15 @@ export default function TenantDetail() {
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);
   const [newUser, setNewUser] = useState({ name: "", email: "", role_id: "" });
   const [revealedKeys, setRevealedKeys] = useState<Record<string, string>>({});
+  const [viewRolePerms, setViewRolePerms] = useState<Role | null>(null);
+  const [confirmData, setConfirmData] = useState<{
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
+  const { user: currentUser } = useAuthStore();
+
+  const hasPermission = (p: string) => currentUser?.permissions.includes(p) || currentUser?.roles.includes("Super Admin");
 
   const load = async () => {
     if (!id) return;
@@ -64,6 +76,9 @@ export default function TenantDetail() {
         email: t.email,
         phone: t.phone ?? undefined,
         address: t.address ?? undefined,
+        sender_email: t.sender_email ?? undefined,
+        sender_user: t.sender_user_encrypted ? "********" : "",
+        sender_password: "",
       });
       setGeo({
         country: t.country_code || t.country || "",
@@ -121,15 +136,25 @@ export default function TenantDetail() {
       logo_url =
         (form.logo_url as string | undefined) ?? tenant.logo_url ?? undefined;
     }
+    const updatePayload: UpdateTenantPayload = {
+      ...form,
+      country: geo.country_name || geo.country,
+      country_code: geo.country,
+      city: geo.city,
+      timezone: geo.timezone,
+      logo_url,
+    };
+
+    // Don't send "********" back to server (unmodified sensitive field)
+    if (updatePayload.sender_user === "********") {
+      delete updatePayload.sender_user;
+    }
+    if (!updatePayload.sender_password) {
+      delete updatePayload.sender_password;
+    }
+
     try {
-      const updated = await api.tenants.update(id, {
-        ...form,
-        country: geo.country_name || geo.country,
-        country_code: geo.country,
-        city: geo.city,
-        timezone: geo.timezone,
-        logo_url,
-      });
+      const updated = await api.tenants.update(id, updatePayload);
       setTenant(updated);
       setEditOpen(false);
       setAvatarFile(null);
@@ -152,6 +177,32 @@ export default function TenantDetail() {
     }
   };
 
+  const toggleUser2FA = async (user: AdminUser) => {
+    try {
+      await api.users.setTwoFactor(user.id, !user.two_factor_enabled);
+      const us = await api.users.list(id!);
+      setUsers(us);
+      toast.success(
+        user.two_factor_enabled ? `2FA désactivé pour ${user.name}` : `2FA activé pour ${user.name}`
+      );
+    } catch (err) {
+      toast.error(getErrMsg(err));
+    }
+  };
+
+  const toggleTenant2FA = async () => {
+    if (!tenant || !id) return;
+    try {
+      const updated = await api.tenants.setTwoFactor(id, !tenant.two_factor_enabled);
+      setTenant(updated);
+      toast.success(
+        tenant.two_factor_enabled ? "2FA désactivé pour le tenant" : "2FA activé pour le tenant"
+      );
+    } catch (err) {
+      toast.error(getErrMsg(err));
+    }
+  };
+
   const sendResetLink = async (user: AdminUser) => {
     try {
       await api.users.sendReset(user.email);
@@ -162,15 +213,20 @@ export default function TenantDetail() {
   };
 
   const deleteSubscription = async (subId: string) => {
-    if (!confirm("Supprimer cet abonnement ?")) return;
-    try {
-      await api.subscriptions.delete(subId);
-      const subs = await api.subscriptions.list({ tenant_id: id!, per_page: 50 });
-      setSubscriptions(subs.data);
-      toast.success("Abonnement supprimé");
-    } catch (err) {
-      toast.error(getErrMsg(err));
-    }
+    setConfirmData({
+      title: "Supprimer l'abonnement",
+      message: "Êtes-vous sûr de vouloir supprimer cet abonnement ? Cette action est irréversible.",
+      onConfirm: async () => {
+        try {
+          await api.subscriptions.delete(subId);
+          const subs = await api.subscriptions.list({ tenant_id: id!, per_page: 50 });
+          setSubscriptions(subs.data);
+          toast.success("Abonnement supprimé");
+        } catch (err) {
+          toast.error(getErrMsg(err));
+        }
+      },
+    });
   };
 
   const changeSubStatus = async (subId: string, status: string) => {
@@ -293,6 +349,23 @@ export default function TenantDetail() {
     }
   };
 
+  const deleteRole = async (roleId: string, roleName: string) => {
+    setConfirmData({
+      title: "Supprimer le rôle",
+      message: `Êtes-vous sûr de vouloir supprimer le rôle "${roleName}" ? Il ne doit être attribué à aucun utilisateur.`,
+      onConfirm: async () => {
+        try {
+          await api.roles.delete(roleId);
+          toast.success(`Rôle "${roleName}" supprimé`);
+          const rs = await api.roles.list(id!);
+          setRoles(rs);
+        } catch (err) {
+          toast.error(getErrMsg(err));
+        }
+      },
+    });
+  };
+
   const togglePerm = (permId: string) =>
     setSelectedPerms((prev) => {
       const next = new Set(prev);
@@ -343,34 +416,41 @@ export default function TenantDetail() {
                 tone={tenant.is_active === false ? "suspended" : "active"}
               />
               {tenant.is_system && <Badge label="Système" tone="default" />}
+              {tenant.two_factor_enabled && <Badge label="2FA" tone="default" />}
             </div>
           </div>
         </div>
-        {!tenant.is_system && (
-          <div className="flex gap-2 flex-wrap">
-            <button
-              type="button"
-              onClick={() => setEditOpen(true)}
-              className="px-4 py-2 rounded-xl border border-border font-semibold text-sm cursor-pointer hover:bg-accent"
-            >
-              Modifier
-            </button>
-            <button
-              type="button"
-              onClick={() => setUserModal(true)}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-border font-semibold text-sm cursor-pointer hover:bg-accent"
-            >
-              <UserPlus className="w-4 h-4" />
-              Admin utilisateur
-            </button>
-            <button
-              type="button"
-              onClick={() => void openRoleModal()}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-border font-semibold text-sm cursor-pointer hover:bg-accent"
-            >
-              <ShieldPlus className="w-4 h-4" />
-              Nouveau rôle
-            </button>
+        <div className="flex gap-2 flex-wrap items-center">
+          {hasPermission("can_manage_two_factor_for_tenant") && (
+            <div className="flex items-center gap-2 mr-4 border border-border p-2 rounded-xl">
+              <span className="text-xs font-semibold">2FA Tenant</span>
+              <Switch checked={tenant.two_factor_enabled} onChange={() => void toggleTenant2FA()} />
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => setEditOpen(true)}
+            className="px-4 py-2 rounded-xl border border-border font-semibold text-sm cursor-pointer hover:bg-accent"
+          >
+            Modifier
+          </button>
+          <button
+            type="button"
+            onClick={() => setUserModal(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-border font-semibold text-sm cursor-pointer hover:bg-accent"
+          >
+            <UserPlus className="w-4 h-4" />
+            Admin utilisateur
+          </button>
+          <button
+            type="button"
+            onClick={() => void openRoleModal()}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-border font-semibold text-sm cursor-pointer hover:bg-accent"
+          >
+            <ShieldPlus className="w-4 h-4" />
+            Nouveau rôle
+          </button>
+          {!tenant.is_system && (
             <button
               type="button"
               onClick={() => setLicenseModal(true)}
@@ -379,15 +459,23 @@ export default function TenantDetail() {
               <KeyRound className="w-4 h-4" />
               Générer licence
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       <div className="grid md:grid-cols-2 gap-4 text-sm">
         <Info label="Type" value={tenant.business_type} />
+        <Info label="Email" value={tenant.email} />
         <Info label="Téléphone" value={tenant.phone || "—"} />
         <Info label="Ville" value={tenant.city || "—"} />
-        <Info label="Pays" value={tenant.country || "—"} />
+        <Info
+          label="Pays"
+          value={
+            tenant.country && tenant.country_code
+              ? `${tenant.country} (${tenant.country_code})`
+              : tenant.country || tenant.country_code || "—"
+          }
+        />
         <Info label="Fuseau" value={tenant.timezone || "—"} />
         <Info label="Adresse" value={tenant.address || "—"} />
         <Info label="Créé le" value={formatDate(tenant.created_at)} />
@@ -400,7 +488,7 @@ export default function TenantDetail() {
             <button
               type="button"
               onClick={() => void openRoleModal()}
-              className="text-primary underline"
+              className="text-primary underline cursor-pointer"
             >
               Créer le premier rôle
             </button>
@@ -410,22 +498,54 @@ export default function TenantDetail() {
             {roles.map((r) => (
               <li
                 key={r.id}
-                className="flex items-center justify-between gap-2 p-3 rounded-xl border border-border"
+                className="flex flex-col gap-2 p-3 rounded-xl border border-border"
               >
-                <span>
-                  <span className="font-semibold">{r.name}</span>
-                  {r.description && (
-                    <span className="text-xs text-muted-foreground ml-2">{r.description}</span>
-                  )}
-                </span>
-                <button
-                  type="button"
-                  title="Modifier ce rôle"
-                  onClick={() => void openRoleModal(r)}
-                  className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
-                >
-                  <Pencil className="w-3.5 h-3.5" />
-                </button>
+                <div className="flex items-center justify-between gap-2">
+                  <span>
+                    <span className="font-semibold">{r.name}</span>
+                    {r.description && (
+                      <span className="text-xs text-muted-foreground ml-2">{r.description}</span>
+                    )}
+                  </span>
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      title="Modifier ce rôle"
+                      onClick={() => void openRoleModal(r)}
+                      className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
+                    >
+                      <Pencil className="w-5 h-5" />
+                    </button>
+                    {hasPermission("can_delete_role") && r.name !== "Super Admin" && (
+                      <button
+                        type="button"
+                        title="Supprimer ce rôle"
+                        onClick={() => void deleteRole(r.id, r.name)}
+                        className="p-1.5 rounded-lg hover:bg-accent text-destructive cursor-pointer"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {r.permissions && r.permissions.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                    {r.permissions.slice(0, 5).map((p) => (
+                      <span key={p.id} className="text-[10px] px-2 py-0.5 rounded-md bg-muted text-muted-foreground font-medium">
+                        {p.name}
+                      </span>
+                    ))}
+                    {r.permissions.length > 3 && (
+                      <button
+                        type="button"
+                        onClick={() => setViewRolePerms(r)}
+                        className="text-[10px] px-2 py-0.5 rounded-md bg-primary/10 text-primary font-bold hover:bg-primary/20 cursor-pointer"
+                      >
+                        +{r.permissions.length - 3}
+                      </button>
+                    )}
+                  </div>
+                )}
               </li>
             ))}
           </ul>
@@ -449,26 +569,32 @@ export default function TenantDetail() {
                     <span className="ml-2 text-xs text-muted-foreground">[{u.roles.join(", ")}]</span>
                   )}
                 </span>
-                <span className="flex gap-1">
+                <span className="flex items-center gap-1">
+                  {hasPermission("can_manage_two_factor_for_user") && (
+                    <div className="flex items-center gap-2 mr-2 border border-border p-1.5 rounded-lg">
+                      <span className="text-[10px] font-bold uppercase text-muted-foreground">2FA</span>
+                      <Switch checked={u.two_factor_enabled} onChange={() => void toggleUser2FA(u)} />
+                    </div>
+                  )}
                   <button
                     type="button"
                     title="Envoyer lien de réinitialisation"
                     onClick={() => void sendResetLink(u)}
-                    className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
+                    className="p-2 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
                   >
-                    <Mail className="w-3.5 h-3.5" />
+                    <Mail className="w-5 h-5" />
                   </button>
                   <button
                     type="button"
                     title={u.is_active === false ? "Activer" : "Désactiver"}
                     onClick={() => void toggleUser(u)}
-                    className={`p-1.5 rounded-lg hover:bg-accent ${
+                    className={`p-2 rounded-lg hover:bg-accent cursor-pointer ${
                       u.is_active === false
                         ? "text-green-600"
                         : "text-destructive hover:text-destructive"
                     }`}
                   >
-                    <Power className="w-3.5 h-3.5" />
+                    <Power className="w-5 h-5" />
                   </button>
                 </span>
               </li>
@@ -477,93 +603,97 @@ export default function TenantDetail() {
         )}
       </Section>
 
-      <Section title="Abonnements">
-        {subscriptions.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Aucun abonnement.</p>
-        ) : (
-          <ul className="space-y-2">
-            {subscriptions.map((s) => (
-              <li
-                key={s.id}
-                className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl border border-border"
-              >
-                <div className="flex items-center gap-3 flex-wrap">
-                  <span className="font-semibold capitalize">{s.plan}</span>
-                  <Badge label={s.status} tone={statusTone(s.status)} />
-                  <span className="text-muted-foreground">
-                    {formatCurrency(s.price_monthly, s.currency)}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    Expire {formatDate(s.expires_at)}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <select
-                    className="text-xs rounded-lg border border-border bg-background px-2 py-1 cursor-pointer"
-                    value={s.status}
-                    onChange={(e) => void changeSubStatus(s.id, e.target.value)}
-                    title="Modifier le statut"
-                  >
-                    <option value="trial">Trial</option>
-                    <option value="active">Actif</option>
-                    <option value="suspended">Suspendu</option>
-                    <option value="cancelled">Annulé</option>
-                  </select>
-                  <button
-                    type="button"
-                    title="Supprimer"
-                    onClick={() => void deleteSubscription(s.id)}
-                    className="p-1.5 rounded-lg hover:bg-accent text-destructive"
-                  >
-                    ×
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Section>
+      {!tenant.is_system && (
+        <Section title="Abonnements">
+          {subscriptions.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Aucun abonnement.</p>
+          ) : (
+            <ul className="space-y-2">
+              {subscriptions.map((s) => (
+                <li
+                  key={s.id}
+                  className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl border border-border"
+                >
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <span className="font-semibold capitalize">{s.plan}</span>
+                    <Badge label={s.status} tone={statusTone(s.status)} />
+                    <span className="text-muted-foreground">
+                      {formatCurrency(s.price_monthly, s.currency)}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      Expire {formatDate(s.expires_at)}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <select
+                      className="text-xs rounded-lg border border-border bg-background px-2 py-1 cursor-pointer"
+                      value={s.status}
+                      onChange={(e) => void changeSubStatus(s.id, e.target.value)}
+                      title="Modifier le statut"
+                    >
+                      <option value="trial">Trial</option>
+                      <option value="active">Actif</option>
+                      <option value="suspended">Suspendu</option>
+                      <option value="cancelled">Annulé</option>
+                    </select>
+                    <button
+                      type="button"
+                      title="Supprimer"
+                      onClick={() => void deleteSubscription(s.id)}
+                      className="p-1.5 rounded-lg hover:bg-accent text-destructive cursor-pointer"
+                    >
+                      ×
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Section>
+      )}
 
-      <Section title="Licences">
-        {licenses.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Aucune licence.</p>
-        ) : (
-          <ul className="space-y-2 font-mono text-xs">
-            {licenses.map((l) => (
-              <li
-                key={l.id}
-                className="p-3 rounded-xl border border-border flex flex-wrap items-center justify-between gap-2"
-              >
-                <div className="flex flex-col gap-1">
-                  <span>{revealedKeys[l.id] ?? l.license_key_masked}</span>
-                  <span className="text-muted-foreground">
-                    {l.activated_at ? "Activée" : "En attente"}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    title={revealedKeys[l.id] ? "Clé révélée" : "Voir la clé"}
-                    onClick={() => void revealLicense(l.id)}
-                    className="px-2 py-1 rounded-lg border border-border hover:bg-accent text-[10px] uppercase tracking-wide"
-                  >
-                    {revealedKeys[l.id] ? "Clé affichée" : "Voir clé"}
-                  </button>
-                  <button
-                    type="button"
-                    title="Envoyer au tenant par email"
-                    onClick={() => void sendLicenseKey(l.id)}
-                    className="px-2 py-1 rounded-lg border border-border hover:bg-accent text-[10px] uppercase tracking-wide inline-flex items-center gap-1"
-                  >
-                    <Mail className="w-3 h-3" />
-                    Envoyer
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Section>
+      {!tenant.is_system && (
+        <Section title="Licences">
+          {licenses.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Aucune licence.</p>
+          ) : (
+            <ul className="space-y-2 font-mono text-xs">
+              {licenses.map((l) => (
+                <li
+                  key={l.id}
+                  className="p-3 rounded-xl border border-border flex flex-wrap items-center justify-between gap-2"
+                >
+                  <div className="flex flex-col gap-1">
+                    <span>{revealedKeys[l.id] ?? l.license_key_masked}</span>
+                    <span className="text-muted-foreground">
+                      {l.activated_at ? "Activée" : "En attente"}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      title={revealedKeys[l.id] ? "Clé révélée" : "Voir la clé"}
+                      onClick={() => void revealLicense(l.id)}
+                      className="px-2 py-1 rounded-lg border border-border hover:bg-accent text-[10px] uppercase tracking-wide cursor-pointer"
+                    >
+                      {revealedKeys[l.id] ? "Clé affichée" : "Voir clé"}
+                    </button>
+                    <button
+                      type="button"
+                      title="Envoyer au tenant par email"
+                      onClick={() => void sendLicenseKey(l.id)}
+                      className="px-2 py-1 rounded-lg border border-border hover:bg-accent text-[10px] uppercase tracking-wide inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <Mail className="w-3 h-3" />
+                      Envoyer
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Section>
+      )}
 
       {editOpen && (
         <Modal title="Modifier l'entreprise" onClose={() => setEditOpen(false)} wide>
@@ -614,6 +744,40 @@ export default function TenantDetail() {
               value={(form.address as string) || ""}
               onChange={(e) => setForm({ ...form, address: e.target.value })}
             />
+            {tenant.is_system && hasPermission("can_update_tenant_credentials") && currentUser?.tenant_id === tenant.id && (
+              <div className="space-y-3 p-4 rounded-xl border border-border bg-muted/30">
+                <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Configuration SMTP (Système uniquement)</p>
+                <div className="space-y-2">
+                  <label className="block">
+                    <span className="text-xs font-semibold ml-1">Email de l'expéditeur</span>
+                    <input
+                      className="form-input mt-1"
+                      placeholder="ex: noreply@aztea.com"
+                      value={form.sender_email || ""}
+                      onChange={(e) => setForm({ ...form, sender_email: e.target.value })}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold ml-1">Nom d'utilisateur SMTP</span>
+                    <input
+                      className="form-input mt-1"
+                      value={form.sender_user || ""}
+                      onChange={(e) => setForm({ ...form, sender_user: e.target.value })}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold ml-1">Mot de passe SMTP</span>
+                    <input
+                      type="password"
+                      className="form-input mt-1"
+                      placeholder="Laisser vide pour ne pas modifier"
+                      value={form.sender_password || ""}
+                      onChange={(e) => setForm({ ...form, sender_password: e.target.value })}
+                    />
+                  </label>
+                </div>
+              </div>
+            )}
             <GeoFields value={geo} onChange={setGeo} />
             <button
               type="submit"
@@ -713,7 +877,7 @@ export default function TenantDetail() {
                       </span>
                       <button
                         type="button"
-                        className="text-xs text-primary underline"
+                        className="text-xs text-primary underline cursor-pointer"
                         onClick={() => {
                           const allSelected = g.permissions.every((p) => selectedPerms.has(p.id));
                           setSelectedPerms((prev) => {
@@ -812,6 +976,43 @@ export default function TenantDetail() {
           )}
         </Modal>
       )}
+
+      {viewRolePerms && (
+        <Modal
+          title={`Permissions — ${viewRolePerms.name}`}
+          onClose={() => setViewRolePerms(null)}
+          wide
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              {viewRolePerms.description || "Aucune description."}
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-96 overflow-y-auto pr-1">
+              {viewRolePerms.permissions?.map((p) => (
+                <div key={p.id} className="p-3 rounded-lg border border-border bg-muted/20">
+                  <p className="text-xs font-bold text-foreground">{p.name}</p>
+                  {p.description && <p className="text-[10px] text-muted-foreground mt-0.5">{p.description}</p>}
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setViewRolePerms(null)}
+              className="w-full py-2 rounded-xl border border-border font-semibold cursor-pointer"
+            >
+              Fermer
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      <ConfirmModal
+        isOpen={!!confirmData}
+        title={confirmData?.title || ""}
+        message={confirmData?.message || ""}
+        onConfirm={() => confirmData?.onConfirm()}
+        onCancel={() => setConfirmData(null)}
+      />
     </div>
   );
 }

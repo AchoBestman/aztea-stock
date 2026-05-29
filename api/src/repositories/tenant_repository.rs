@@ -1,7 +1,5 @@
-use sea_orm::{
-    ActiveModelTrait, DatabaseConnection, DbErr, EntityTrait, Set
-};
 use crate::models::tenant;
+use sea_orm::{ActiveModelTrait, DatabaseConnection, DbErr, EntityTrait, Set};
 
 pub struct TenantRepository;
 
@@ -48,8 +46,9 @@ impl TenantRepository {
         is_active: Option<bool>,
         created_after: Option<chrono::DateTime<chrono::FixedOffset>>,
         created_before: Option<chrono::DateTime<chrono::FixedOffset>>,
+        country_code: Option<&str>,
     ) -> Result<Vec<tenant::Model>, DbErr> {
-        use sea_orm::{QueryFilter, ColumnTrait, Condition};
+        use sea_orm::{ColumnTrait, Condition, QueryFilter};
         let mut query = tenant::Entity::find();
 
         if let Some(bt) = business_type {
@@ -68,6 +67,10 @@ impl TenantRepository {
             query = query.filter(tenant::Column::CreatedAt.lte(before));
         }
 
+        if let Some(cc) = country_code {
+            query = query.filter(tenant::Column::CountryCode.eq(cc));
+        }
+
         if let Some(s) = search {
             let search_pattern = format!("%{}%", s);
             query = query.filter(
@@ -77,7 +80,7 @@ impl TenantRepository {
                     .add(tenant::Column::Phone.like(&search_pattern))
                     .add(tenant::Column::Country.like(&search_pattern))
                     .add(tenant::Column::City.like(&search_pattern))
-                    .add(tenant::Column::Address.like(&search_pattern))
+                    .add(tenant::Column::Address.like(&search_pattern)),
             );
         }
 
@@ -91,6 +94,7 @@ impl TenantRepository {
         is_active: Option<bool>,
         created_after: Option<chrono::DateTime<chrono::FixedOffset>>,
         created_before: Option<chrono::DateTime<chrono::FixedOffset>>,
+        country_code: Option<&str>,
         page: u64,
         per_page: u64,
         order_by: &str,
@@ -111,6 +115,9 @@ impl TenantRepository {
         }
         if let Some(before) = created_before {
             query = query.filter(tenant::Column::CreatedAt.lte(before));
+        }
+        if let Some(cc) = country_code {
+            query = query.filter(tenant::Column::CountryCode.eq(cc));
         }
         if let Some(s) = search {
             let search_pattern = format!("%{}%", s);

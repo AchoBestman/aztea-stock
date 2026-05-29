@@ -14,8 +14,8 @@ CREATE TABLE sales (
     payment_method  VARCHAR(50) NOT NULL CHECK (payment_method IN ('cash','card','mobile_money','credit')),
     status          VARCHAR(50) DEFAULT 'completed' CHECK (status IN ('completed','voided','refunded')),
     notes           TEXT,
-    sold_at         TIMESTAMP NOT NULL,
-    created_at      TIMESTAMP NOT NULL
+    sold_at         DATETIME NOT NULL,
+    created_at      DATETIME NOT NULL
 );
 
 CREATE TABLE sale_items (
@@ -42,8 +42,8 @@ CREATE TABLE purchases (
     total           DECIMAL(10,2) NOT NULL,
     status          VARCHAR(50) DEFAULT 'received' CHECK (status IN ('pending','received','partial','cancelled')),
     notes           TEXT,
-    purchased_at    TIMESTAMP NOT NULL,
-    created_at      TIMESTAMP NOT NULL
+    purchased_at    DATETIME NOT NULL,
+    created_at      DATETIME NOT NULL
 );
 
 CREATE TABLE purchase_items (
@@ -53,7 +53,7 @@ CREATE TABLE purchase_items (
     product_id      VARCHAR(36) NOT NULL REFERENCES products(id) ON DELETE CASCADE,
     quantity        DECIMAL(10,2) NOT NULL,
     unit_cost       DECIMAL(10,2) NOT NULL,
-    expiry_date     TIMESTAMP,
+    expiry_date     DATETIME,
     batch_number    VARCHAR(100),
     line_total      DECIMAL(10,2) NOT NULL
 );
@@ -68,7 +68,7 @@ CREATE TABLE alerts (
     current_qty     DECIMAL(10,2),
     is_read         BOOLEAN DEFAULT false,
     is_resolved     BOOLEAN DEFAULT false,
-    triggered_at    TIMESTAMP NOT NULL
+    triggered_at    DATETIME NOT NULL
 );
 
 CREATE TABLE sync_log (
@@ -80,8 +80,8 @@ CREATE TABLE sync_log (
     records_pushed  INTEGER DEFAULT 0,
     records_pulled  INTEGER DEFAULT 0,
     error_message   TEXT,
-    started_at      TIMESTAMP NOT NULL,
-    finished_at     TIMESTAMP
+    started_at      DATETIME NOT NULL,
+    finished_at     DATETIME
 );
 
 CREATE INDEX idx_sales_tenant_date ON sales(tenant_id, sold_at);

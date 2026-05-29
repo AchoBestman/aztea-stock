@@ -15,6 +15,7 @@ import GeoFields, { type GeoValues } from "../components/GeoFields";
 import AvatarUpload from "../components/AvatarUpload";
 import LogoUrlField from "../components/LogoUrlField";
 import { useR2UploadAvailable } from "../hooks/useR2Upload";
+import { fetchCountries, type CountryOption } from "../lib/geo/api";
 
 const emptyGeo: GeoValues = { country: "", country_name: "", city: "", timezone: "" };
 
@@ -44,6 +45,8 @@ export default function Tenants() {
   const [geo, setGeo] = useState<GeoValues>(emptyGeo);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
+  const [countries, setCountries] = useState<CountryOption[]>([]);
+  const [countryFilter, setCountryFilter] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -51,6 +54,7 @@ export default function Tenants() {
       const res = await api.tenants.list({
         search: search || undefined,
         is_active: statusFilter || undefined,
+        country_code: countryFilter || undefined,
         page,
         per_page: perPage,
       });
@@ -62,7 +66,7 @@ export default function Tenants() {
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter, page]);
+  }, [search, statusFilter, countryFilter, page]);
 
   useEffect(() => {
     const t = setTimeout(() => void load(), 300);
@@ -71,7 +75,11 @@ export default function Tenants() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, statusFilter]);
+  }, [search, statusFilter, countryFilter]);
+
+  useEffect(() => {
+    fetchCountries().then(setCountries);
+  }, []);
 
   const resetModal = () => {
     setForm(emptyForm);
@@ -170,6 +178,18 @@ export default function Tenants() {
           <option value="true">Actifs</option>
           <option value="false">Suspendus</option>
         </select>
+        <select
+          className="form-select max-w-[200px]"
+          value={countryFilter}
+          onChange={(e) => setCountryFilter(e.target.value)}
+        >
+          <option value="">Tous les pays</option>
+          {countries.map((c) => (
+            <option key={c.code} value={c.code}>
+              {c.name}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="bg-card border border-border rounded-2xl overflow-x-auto">
@@ -214,8 +234,8 @@ export default function Tenants() {
                       )}
                       <div>
                         <Link
-                          to={t.is_system ? "#" : `/tenants/${t.id}`}
-                          className={`font-semibold ${t.is_system ? "text-muted-foreground" : "hover:text-primary"}`}
+                          to={`/tenants/${t.id}`}
+                          className="font-semibold hover:text-primary"
                         >
                           {t.name}
                         </Link>

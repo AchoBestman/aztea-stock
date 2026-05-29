@@ -1,15 +1,15 @@
-use sea_orm::{DatabaseConnection, PaginatorTrait};
-use validator::Validate;
 use crate::{
-    errors::ApiError,
-    repositories::role_repository::RoleRepository,
     dtos::{
         create_role_dto::CreateRolePayload,
+        response_role_dto::{DeleteRoleResponse, RoleResponse},
         update_role_dto::UpdateRolePayload,
-        response_role_dto::{RoleResponse, DeleteRoleResponse}
     },
-    schemas::role_schema::RoleValidationSchema
+    errors::ApiError,
+    repositories::role_repository::RoleRepository,
+    schemas::role_schema::RoleValidationSchema,
 };
+use sea_orm::{DatabaseConnection, PaginatorTrait};
+use validator::Validate;
 
 pub struct RoleService;
 
@@ -22,13 +22,23 @@ impl RoleService {
         name_query: Option<String>,
     ) -> Result<Vec<RoleResponse>, ApiError> {
         // 1. Fetch caller's tenant
-        let caller_tenant = crate::repositories::tenant_repository::TenantRepository::find_by_id(db, caller_tenant_id)
-            .await?
-            .ok_or_else(|| ApiError::NotFound("Tenant de l'utilisateur introuvable".to_string()))?;
+        let caller_tenant = crate::repositories::tenant_repository::TenantRepository::find_by_id(
+            db,
+            caller_tenant_id,
+        )
+        .await?
+        .ok_or_else(|| ApiError::NotFound("Tenant de l'utilisateur introuvable".to_string()))?;
 
         // 2. Determine target tenant filter based on permission guard
         let target_tenant = if let Some(ref f_t_id) = filter_tenant_id {
-            crate::utils::auth::require_tenant_access(db, caller_tenant_id, f_t_id, caller_user_id, "read").await?;
+            crate::utils::auth::require_tenant_access(
+                db,
+                caller_tenant_id,
+                f_t_id,
+                caller_user_id,
+                "read",
+            )
+            .await?;
             Some(f_t_id.as_str())
         } else if caller_tenant.is_system {
             // System tenant users see all roles if no filter is specified
@@ -38,8 +48,11 @@ impl RoleService {
             Some(caller_tenant_id)
         };
 
-        let models = RoleRepository::find_all_filtered(db, target_tenant, name_query.as_deref()).await?;
-        let is_sys_sa = Self::is_system_super_admin(db, caller_user_id, caller_tenant_id).await.unwrap_or(false);
+        let models =
+            RoleRepository::find_all_filtered(db, target_tenant, name_query.as_deref()).await?;
+        let is_sys_sa = Self::is_system_super_admin(db, caller_user_id, caller_tenant_id)
+            .await
+            .unwrap_or(false);
 
         let mut dtos = Vec::new();
         for m in models {
@@ -47,12 +60,17 @@ impl RoleService {
             if m.name == "Super Admin" && !is_sys_sa {
                 continue;
             }
+
+            // Fetch permissions for this role
+            let perms =
+                Self::list_role_permissions(db, caller_user_id, &m.id, caller_tenant_id).await?;
+
             dtos.push(RoleResponse {
                 id: m.id,
                 tenant_id: m.tenant_id,
                 name: m.name,
                 description: m.description,
-                permissions: None,
+                permissions: Some(perms),
             });
         }
         Ok(dtos)
@@ -70,11 +88,19 @@ impl RoleService {
             .ok_or_else(|| ApiError::NotFound("Rôle introuvable".to_string()))?;
 
         // Multi-tenant guard
-        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &m.tenant_id, caller_user_id, "read").await?;
+        crate::utils::auth::require_tenant_access(
+            db,
+            caller_tenant_id,
+            &m.tenant_id,
+            caller_user_id,
+            "read",
+        )
+        .await?;
 
         // If the role is the system Super Admin, only allow system Super Admin users to access
         if m.name == "Super Admin" {
-            let is_sys_sa = Self::is_system_super_admin(db, caller_user_id, caller_tenant_id).await?;
+            let is_sys_sa =
+                Self::is_system_super_admin(db, caller_user_id, caller_tenant_id).await?;
             if !is_sys_sa {
                 return Err(ApiError::NotFound("Rôle introuvable".to_string()));
             }
@@ -103,11 +129,20 @@ impl RoleService {
             name: &payload.name,
             description: payload.description.as_deref(),
         };
-        validator.validate().map_err(|e| ApiError::BadRequest(e.to_string()))?;
+        validator
+            .validate()
+            .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
         // Determine final tenant id
         let final_tenant_id = if let Some(ref t_id) = payload.tenant_id {
-            crate::utils::auth::require_tenant_access(db, caller_tenant_id, t_id, caller_user_id, "create").await?;
+            crate::utils::auth::require_tenant_access(
+                db,
+                caller_tenant_id,
+                t_id,
+                caller_user_id,
+                "create",
+            )
+            .await?;
             t_id.clone()
         } else {
             caller_tenant_id.to_string()
@@ -115,16 +150,27 @@ impl RoleService {
 
         // Business validation: reject 'Super Admin' name via API
         if payload.name.trim() == "Super Admin" {
-            return Err(ApiError::BadRequest("Le rôle 'Super Admin' ne peut être créé que via le système.".to_string()));
+            return Err(ApiError::BadRequest(
+                "Le rôle 'Super Admin' ne peut être créé que via le système.".to_string(),
+            ));
         }
 
         // Business validation: uniqueness of name within the final tenant
         if RoleRepository::exists_by_name(db, &payload.name, &final_tenant_id).await? {
-            return Err(ApiError::BadRequest("Un rôle avec ce nom existe déjà pour ce tenant.".to_string()));
+            return Err(ApiError::BadRequest(
+                "Un rôle avec ce nom existe déjà pour ce tenant.".to_string(),
+            ));
         }
 
         let id = uuid::Uuid::new_v4().to_string();
-        let m = RoleRepository::create(db, &id, &final_tenant_id, &payload.name, payload.description).await?;
+        let m = RoleRepository::create(
+            db,
+            &id,
+            &final_tenant_id,
+            &payload.name,
+            payload.description,
+        )
+        .await?;
 
         Ok(RoleResponse {
             id: m.id,
@@ -147,7 +193,9 @@ impl RoleService {
             name: &payload.name,
             description: payload.description.as_deref(),
         };
-        validator.validate().map_err(|e| ApiError::BadRequest(e.to_string()))?;
+        validator
+            .validate()
+            .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
         // Fetch globally first
         let role = RoleRepository::find_by_id_global(db, id)
@@ -156,21 +204,35 @@ impl RoleService {
 
         // Business validation: reject renaming or modifying Super Admin
         if role.name == "Super Admin" {
-            return Err(ApiError::BadRequest("Le rôle 'Super Admin' ne peut pas être modifié.".to_string()));
+            return Err(ApiError::BadRequest(
+                "Le rôle 'Super Admin' ne peut pas être modifié.".to_string(),
+            ));
         }
         if payload.name.trim() == "Super Admin" {
-            return Err(ApiError::BadRequest("Un rôle ne peut pas être renommé ou défini en 'Super Admin'.".to_string()));
+            return Err(ApiError::BadRequest(
+                "Un rôle ne peut pas être renommé ou défini en 'Super Admin'.".to_string(),
+            ));
         }
 
         // Multi-tenant guard
-        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &role.tenant_id, caller_user_id, "update").await?;
+        crate::utils::auth::require_tenant_access(
+            db,
+            caller_tenant_id,
+            &role.tenant_id,
+            caller_user_id,
+            "update",
+        )
+        .await?;
 
         // Business validation: uniqueness of name within its tenant
         if RoleRepository::exists_by_name_exclude(db, &payload.name, &role.tenant_id, id).await? {
-            return Err(ApiError::BadRequest("Un rôle avec ce nom existe déjà pour ce tenant.".to_string()));
+            return Err(ApiError::BadRequest(
+                "Un rôle avec ce nom existe déjà pour ce tenant.".to_string(),
+            ));
         }
 
-        let m = RoleRepository::update(db, id, &role.tenant_id, &payload.name, payload.description).await?;
+        let m = RoleRepository::update(db, id, &role.tenant_id, &payload.name, payload.description)
+            .await?;
 
         Ok(RoleResponse {
             id: m.id,
@@ -188,7 +250,7 @@ impl RoleService {
         caller_tenant_id: &str,
     ) -> Result<DeleteRoleResponse, ApiError> {
         use crate::models::user_role;
-        use sea_orm::{EntityTrait, QueryFilter, ColumnTrait, PaginatorTrait};
+        use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
 
         // Fetch globally first
         let role = RoleRepository::find_by_id_global(db, id)
@@ -197,11 +259,20 @@ impl RoleService {
 
         // Business validation: reject deleting Super Admin
         if role.name == "Super Admin" {
-            return Err(ApiError::BadRequest("Le rôle 'Super Admin' ne peut pas être supprimé.".to_string()));
+            return Err(ApiError::BadRequest(
+                "Le rôle 'Super Admin' ne peut pas être supprimé.".to_string(),
+            ));
         }
 
         // Multi-tenant guard
-        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &role.tenant_id, caller_user_id, "delete").await?;
+        crate::utils::auth::require_tenant_access(
+            db,
+            caller_tenant_id,
+            &role.tenant_id,
+            caller_user_id,
+            "delete",
+        )
+        .await?;
 
         let user_role_count = user_role::Entity::find()
             .filter(user_role::Column::RoleId.eq(id))
@@ -232,8 +303,10 @@ impl RoleService {
         caller_tenant_id: &str,
         permission_ids: Vec<String>,
     ) -> Result<(), ApiError> {
-        use sea_orm::{EntityTrait, QueryFilter, ColumnTrait, ActiveModelTrait, Set, TransactionTrait};
-        use crate::models::{role_permission, permission};
+        use crate::models::{permission, role_permission};
+        use sea_orm::{
+            ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set, TransactionTrait,
+        };
 
         // 1. Fetch role globally to ensure it exists
         let role = RoleRepository::find_by_id_global(db, role_id)
@@ -241,11 +314,19 @@ impl RoleService {
             .ok_or_else(|| ApiError::NotFound("Rôle introuvable".to_string()))?;
 
         // 2. Multi-tenant guard
-        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &role.tenant_id, caller_user_id, "update").await?;
+        crate::utils::auth::require_tenant_access(
+            db,
+            caller_tenant_id,
+            &role.tenant_id,
+            caller_user_id,
+            "update",
+        )
+        .await?;
 
         // 3. Prevent modifying permissions of the "Super Admin" role unless they are a system super admin
         if role.name == "Super Admin" {
-            let is_sys_sa = Self::is_system_super_admin(db, caller_user_id, caller_tenant_id).await?;
+            let is_sys_sa =
+                Self::is_system_super_admin(db, caller_user_id, caller_tenant_id).await?;
             if !is_sys_sa {
                 return Err(ApiError::BadRequest("Seul un Super Admin du tenant système peut modifier les permissions du rôle 'Super Admin'.".to_string()));
             }
@@ -260,7 +341,8 @@ impl RoleService {
 
             if existing_count != permission_ids.len() as u64 {
                 return Err(ApiError::BadRequest(
-                    "Une ou plusieurs permissions spécifiées sont introuvables ou invalides.".to_string()
+                    "Une ou plusieurs permissions spécifiées sont introuvables ou invalides."
+                        .to_string(),
                 ));
             }
         }
@@ -304,8 +386,8 @@ impl RoleService {
         role_id: &str,
         caller_tenant_id: &str,
     ) -> Result<Vec<crate::services::permission_service::PermissionResponse>, ApiError> {
-        use sea_orm::{EntityTrait, QueryFilter, ColumnTrait};
-        use crate::models::{role_permission, permission};
+        use crate::models::{permission, role_permission};
+        use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
         // 1. Fetch role globally first to ensure it exists
         let role = RoleRepository::find_by_id_global(db, role_id)
@@ -313,11 +395,19 @@ impl RoleService {
             .ok_or_else(|| ApiError::NotFound("Rôle introuvable".to_string()))?;
 
         // 2. Multi-tenant guard
-        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &role.tenant_id, caller_user_id, "read").await?;
+        crate::utils::auth::require_tenant_access(
+            db,
+            caller_tenant_id,
+            &role.tenant_id,
+            caller_user_id,
+            "read",
+        )
+        .await?;
 
         // 3. If it's the system Super Admin role, only allow system Super Admin users to view
         if role.name == "Super Admin" {
-            let is_sys_sa = Self::is_system_super_admin(db, caller_user_id, caller_tenant_id).await?;
+            let is_sys_sa =
+                Self::is_system_super_admin(db, caller_user_id, caller_tenant_id).await?;
             if !is_sys_sa {
                 return Err(ApiError::NotFound("Rôle introuvable".to_string()));
             }
@@ -325,11 +415,13 @@ impl RoleService {
             let all_perms = permission::Entity::find().all(db).await?;
             let response = all_perms
                 .into_iter()
-                .map(|p| crate::services::permission_service::PermissionResponse {
-                    id: p.id,
-                    name: p.name,
-                    description: p.description,
-                })
+                .map(
+                    |p| crate::services::permission_service::PermissionResponse {
+                        id: p.id,
+                        name: p.name,
+                        description: p.description,
+                    },
+                )
                 .collect();
             return Ok(response);
         }
@@ -353,11 +445,13 @@ impl RoleService {
 
         let response = perms
             .into_iter()
-            .map(|p| crate::services::permission_service::PermissionResponse {
-                id: p.id,
-                name: p.name,
-                description: p.description,
-            })
+            .map(
+                |p| crate::services::permission_service::PermissionResponse {
+                    id: p.id,
+                    name: p.name,
+                    description: p.description,
+                },
+            )
             .collect();
 
         Ok(response)
@@ -368,13 +462,16 @@ impl RoleService {
         user_id: &str,
         caller_tenant_id: &str,
     ) -> Result<bool, ApiError> {
-        use sea_orm::{EntityTrait, QueryFilter, ColumnTrait};
-        use crate::models::{user_role, role};
+        use crate::models::{role, user_role};
+        use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
         // 1. Fetch tenant
-        let caller_tenant = crate::repositories::tenant_repository::TenantRepository::find_by_id(db, caller_tenant_id)
-            .await?
-            .ok_or_else(|| ApiError::NotFound("Tenant de l'utilisateur introuvable".to_string()))?;
+        let caller_tenant = crate::repositories::tenant_repository::TenantRepository::find_by_id(
+            db,
+            caller_tenant_id,
+        )
+        .await?
+        .ok_or_else(|| ApiError::NotFound("Tenant de l'utilisateur introuvable".to_string()))?;
 
         if !caller_tenant.is_system {
             return Ok(false);

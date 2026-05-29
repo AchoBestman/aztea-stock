@@ -6,9 +6,9 @@ CREATE TABLE categories (
     color       VARCHAR(50),             -- hex color pour l'UI
     icon        VARCHAR(100),
     parent_id   VARCHAR(36) REFERENCES categories(id) ON DELETE SET NULL,
-    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    deleted_at  TIMESTAMP              -- soft delete
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    deleted_at  DATETIME              -- soft delete
 );
 
 CREATE INDEX idx_categories_tenant_id ON categories(tenant_id);

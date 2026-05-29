@@ -8,8 +8,8 @@ CREATE TABLE stock_items (
     low_stock_threshold REAL NOT NULL DEFAULT 5.0,
     unit_location       VARCHAR(255),
     batch_number        VARCHAR(100),
-    expiry_date         TIMESTAMP,
-    updated_at          TIMESTAMP NOT NULL,
+    expiry_date         DATETIME,
+    updated_at          DATETIME NOT NULL,
     CONSTRAINT uniq_tenant_product UNIQUE (tenant_id, product_id)
 );
 

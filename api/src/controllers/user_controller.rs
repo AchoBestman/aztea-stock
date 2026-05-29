@@ -9,9 +9,12 @@ use crate::{
     services::user_service::UserService,
     utils::auth::require_permission,
 };
-use axum::{Extension, Json, extract::{Query, State}};
-use std::sync::Arc;
+use axum::{
+    Extension, Json,
+    extract::{Query, State},
+};
 use serde::Deserialize;
+use std::sync::Arc;
 use utoipa::IntoParams;
 
 #[derive(Deserialize, IntoParams)]
@@ -52,7 +55,8 @@ pub async fn list_users(
         require_permission(db, &claims.sub, "can_read_user").await?;
     }
 
-    let users = UserService::list_users(db, &claims.sub, &claims.tenant_id, query.tenant_id).await?;
+    let users =
+        UserService::list_users(db, &claims.sub, &claims.tenant_id, query.tenant_id).await?;
     Ok(Json(users))
 }
 
@@ -124,17 +128,30 @@ pub async fn set_user_two_factor(
         .as_ref()
         .ok_or_else(|| ApiError::Internal("La base de données n'est pas disponible".to_string()))?;
 
-    // Check permission (either manage users or update user)
-    if require_permission(db, &claims.sub, "can_manage_tenant_users")
-        .await
-        .is_err()
-    {
-        require_permission(db, &claims.sub, "can_update_user").await?;
-    }
+    // Check can_manage_two_factor_for_user permission
+    require_permission(db, &claims.sub, "can_manage_two_factor_for_user").await?;
+
+    // Load target user to find their tenant
+    let target_user = crate::repositories::user_repository::UserRepository::find_by_id_global(
+        db,
+        &payload.user_id,
+    )
+    .await?
+    .ok_or_else(|| ApiError::NotFound("Utilisateur introuvable".to_string()))?;
+
+    // Cross-tenant check: if target user is in a different tenant, caller must be system tenant
+    crate::utils::auth::require_tenant_access(
+        db,
+        &claims.tenant_id,
+        &target_user.tenant_id,
+        &claims.sub,
+        "update",
+    )
+    .await?;
 
     let user = UserService::set_two_factor(
         db,
-        &claims.tenant_id,
+        &target_user.tenant_id,
         &payload.user_id,
         payload.two_factor_enabled,
     )

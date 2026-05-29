@@ -71,6 +71,7 @@ export interface Tenant {
   is_system: boolean;
   two_factor_enabled: boolean;
   sender_email: string | null;
+  sender_user_encrypted: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -101,6 +102,9 @@ export interface UpdateTenantPayload {
   logo_url?: string | null;
   is_active?: boolean | null;
   two_factor_enabled?: boolean;
+  sender_email?: string | null;
+  sender_user?: string | null;
+  sender_password?: string | null;
 }
 
 export interface Subscription {
@@ -259,6 +263,7 @@ export const api = {
       search?: string;
       business_type?: string;
       is_active?: string;
+      country_code?: string;
       page?: number;
       per_page?: number;
     }) => request<Paginated<Tenant>>(`/admin/tenants${qs(params || {})}`),
@@ -279,6 +284,12 @@ export const api = {
 
     remove: (id: string) =>
       request<Tenant>(`/admin/tenants/${id}`, { method: "DELETE" }),
+
+    setTwoFactor: (tenant_id: string, two_factor_enabled: boolean) =>
+      request<Tenant>("/admin/tenant/two-factor", {
+        method: "POST",
+        body: JSON.stringify({ tenant_id, two_factor_enabled }),
+      }),
   },
 
   subscriptions: {
@@ -362,6 +373,12 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ email }),
       }),
+
+    setTwoFactor: (user_id: string, two_factor_enabled: boolean) =>
+      request<AdminUser>("/admin/users/two-factor", {
+        method: "POST",
+        body: JSON.stringify({ user_id, two_factor_enabled }),
+      }),
   },
 
   roles: {
@@ -388,6 +405,10 @@ export const api = {
         method: "PUT",
         body: JSON.stringify(payload),
       }),
+    delete: (roleId: string) =>
+      request<{ success: boolean; message: string }>(`/admin/roles/${roleId}`, {
+        method: "DELETE",
+      }),
   },
 
   permissions: {
@@ -401,6 +422,7 @@ export interface Role {
   name: string;
   description?: string;
   tenant_id: string;
+  permissions?: Permission[];
 }
 
 export interface Permission {

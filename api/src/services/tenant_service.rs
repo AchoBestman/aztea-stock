@@ -1,10 +1,10 @@
-use sea_orm::DatabaseConnection;
 use crate::{
+    dtos::tenant_dto::{CreateTenantPayload, TenantResponse, UpdateTenantPayload},
     errors::ApiError,
     repositories::tenant_repository::TenantRepository,
-    dtos::tenant_dto::{CreateTenantPayload, UpdateTenantPayload, TenantResponse},
     utils::crypto::encrypt,
 };
+use sea_orm::DatabaseConnection;
 
 pub struct TenantService;
 
@@ -14,10 +14,14 @@ impl TenantService {
             return Err(ApiError::BadRequest("Le pays est obligatoire.".to_string()));
         }
         if city.trim().is_empty() {
-            return Err(ApiError::BadRequest("La ville est obligatoire.".to_string()));
+            return Err(ApiError::BadRequest(
+                "La ville est obligatoire.".to_string(),
+            ));
         }
         if timezone.trim().is_empty() {
-            return Err(ApiError::BadRequest("Le fuseau horaire est obligatoire.".to_string()));
+            return Err(ApiError::BadRequest(
+                "Le fuseau horaire est obligatoire.".to_string(),
+            ));
         }
         Ok(())
     }
@@ -63,6 +67,7 @@ impl TenantService {
         is_active: Option<String>,
         created_after: Option<String>,
         created_before: Option<String>,
+        country_code: Option<String>,
         page: u64,
         per_page: u64,
         order_by: Option<String>,
@@ -87,7 +92,10 @@ impl TenantService {
         };
 
         let order_col = order_by.as_deref().unwrap_or("created_at");
-        let order_desc = order_type.as_deref().unwrap_or("desc").eq_ignore_ascii_case("desc");
+        let order_desc = order_type
+            .as_deref()
+            .unwrap_or("desc")
+            .eq_ignore_ascii_case("desc");
 
         let (models, total) = TenantRepository::find_paginated(
             db,
@@ -96,6 +104,7 @@ impl TenantService {
             is_active_parsed,
             after_parsed,
             before_parsed,
+            country_code.as_deref(),
             page.max(1),
             per_page.clamp(1, 100),
             order_col,
@@ -140,10 +149,18 @@ impl TenantService {
         caller_has_credentials_permission: bool,
     ) -> Result<TenantResponse, ApiError> {
         // Load caller tenant
-        let caller_tenant = Self::load_tenant(db, caller_tenant_id, "Tenant de l'utilisateur introuvable").await?;
+        let caller_tenant =
+            Self::load_tenant(db, caller_tenant_id, "Tenant de l'utilisateur introuvable").await?;
 
         // 1. Guard: Only system tenant users can update another tenant
-        crate::utils::auth::require_tenant_access(db, caller_tenant_id, target_tenant_id, caller_user_id, "update").await?;
+        crate::utils::auth::require_tenant_access(
+            db,
+            caller_tenant_id,
+            target_tenant_id,
+            caller_user_id,
+            "update",
+        )
+        .await?;
 
         // Load target tenant
         let mut tenant = Self::load_tenant(db, target_tenant_id, "Tenant introuvable").await?;
@@ -161,7 +178,8 @@ impl TenantService {
 
         if system_only_fields_modified && !caller_tenant.is_system {
             return Err(ApiError::Unauthorized(
-                "Seul un utilisateur du tenant système est autorisé à modifier ces informations.".to_string()
+                "Seul un utilisateur du tenant système est autorisé à modifier ces informations."
+                    .to_string(),
             ));
         }
 
@@ -205,7 +223,11 @@ impl TenantService {
         if let Some(timezone) = &payload.timezone {
             tenant.timezone = Some(timezone.clone());
         }
-        if payload.country.is_some() || payload.country_code.is_some() || payload.city.is_some() || payload.timezone.is_some() {
+        if payload.country.is_some()
+            || payload.country_code.is_some()
+            || payload.city.is_some()
+            || payload.timezone.is_some()
+        {
             let country = tenant.country.as_deref().unwrap_or("");
             let city = tenant.city.as_deref().unwrap_or("");
             let timezone = tenant.timezone.as_deref().unwrap_or("");
@@ -256,7 +278,14 @@ impl TenantService {
     ) -> Result<TenantResponse, ApiError> {
         Self::load_tenant(db, caller_tenant_id, "Tenant de l'utilisateur introuvable").await?;
 
-        crate::utils::auth::require_tenant_access(db, caller_tenant_id, target_tenant_id, caller_user_id, "delete").await?;
+        crate::utils::auth::require_tenant_access(
+            db,
+            caller_tenant_id,
+            target_tenant_id,
+            caller_user_id,
+            "delete",
+        )
+        .await?;
 
         let mut tenant = Self::load_tenant(db, target_tenant_id, "Tenant introuvable").await?;
 
@@ -325,21 +354,27 @@ impl TenantService {
         }
     }
 
-    fn parse_date_param(s: &str, field_name: &str) -> Result<chrono::DateTime<chrono::FixedOffset>, ApiError> {
+    fn parse_date_param(
+        s: &str,
+        field_name: &str,
+    ) -> Result<chrono::DateTime<chrono::FixedOffset>, ApiError> {
         // Try RFC3339 first
         if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
             return Ok(dt);
         }
-        
+
         // Try ISO date YYYY-MM-DD
         if let Ok(naive_date) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
             if let Some(naive_datetime) = naive_date.and_hms_opt(0, 0, 0) {
                 let offset = chrono::FixedOffset::east_opt(0).unwrap();
-                let dt = chrono::DateTime::<chrono::FixedOffset>::from_naive_utc_and_offset(naive_datetime, offset);
+                let dt = chrono::DateTime::<chrono::FixedOffset>::from_naive_utc_and_offset(
+                    naive_datetime,
+                    offset,
+                );
                 return Ok(dt);
             }
         }
-        
+
         Err(ApiError::BadRequest(format!(
             "Format de date pour '{}' invalide. Attendu : RFC3339 (ex: 2026-05-19T10:00:00Z) ou ISO date (ex: 2026-05-19).",
             field_name

@@ -1,7 +1,7 @@
+use crate::models::{role, user, user_role};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, Set
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, Set,
 };
-use crate::models::{user, user_role, role};
 
 pub struct UserRepository;
 
@@ -14,6 +14,17 @@ impl UserRepository {
         user::Entity::find()
             .filter(user::Column::Id.eq(id))
             .filter(user::Column::TenantId.eq(tenant_id))
+            .one(db)
+            .await
+    }
+
+    /// Find user by ID without tenant filter (for cross-tenant operations)
+    pub async fn find_by_id_global(
+        db: &DatabaseConnection,
+        id: &str,
+    ) -> Result<Option<user::Model>, DbErr> {
+        user::Entity::find()
+            .filter(user::Column::Id.eq(id))
             .one(db)
             .await
     }
@@ -77,10 +88,7 @@ impl UserRepository {
         active_model.insert(db).await
     }
 
-    pub async fn update(
-        db: &DatabaseConnection,
-        model: user::Model,
-    ) -> Result<user::Model, DbErr> {
+    pub async fn update(db: &DatabaseConnection, model: user::Model) -> Result<user::Model, DbErr> {
         let active_model = user::ActiveModel {
             id: Set(model.id),
             tenant_id: Set(model.tenant_id),

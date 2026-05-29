@@ -1,16 +1,19 @@
-use axum::{
-    Json, Extension, extract::{State, Query, Path}
-};
-use std::sync::Arc;
 use crate::{
     AppState,
+    dtos::tenant_dto::{
+        CreateTenantPayload, PaginatedTenantResponse, SetTenantTwoFactorPayload, TenantResponse,
+        UpdateTenantPayload,
+    },
     errors::ApiError,
     middleware::auth::Claims,
-    dtos::tenant_dto::{CreateTenantPayload, UpdateTenantPayload, SetTenantTwoFactorPayload, TenantResponse, PaginatedTenantResponse},
     services::tenant_service::TenantService,
-    utils::auth::{require_permission, check_permission},
-
+    utils::auth::{check_permission, require_permission},
 };
+use axum::{
+    Extension, Json,
+    extract::{Path, Query, State},
+};
+use std::sync::Arc;
 
 #[derive(serde::Deserialize, utoipa::IntoParams)]
 pub struct UpdateTenantQuery {
@@ -30,6 +33,8 @@ pub struct ListTenantsQuery {
     pub created_after: Option<String>,
     /// Filtrer par date de création inférieure ou égale (ex: ISO '2026-05-19' ou RFC3339 '2026-05-19T10:00:00Z')
     pub created_before: Option<String>,
+    /// Filtrer par code pays (ISO2, ex: 'FR')
+    pub country_code: Option<String>,
     pub page: Option<u64>,
     pub per_page: Option<u64>,
     pub order_by: Option<String>,
@@ -59,19 +64,22 @@ pub async fn create_tenant(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateTenantPayload>,
 ) -> Result<Json<TenantResponse>, ApiError> {
-    let db = state.db.as_ref().ok_or_else(|| {
-        ApiError::Internal("La base de données n'est pas disponible".to_string())
-    })?;
+    let db = state
+        .db
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("La base de données n'est pas disponible".to_string()))?;
 
     // 1. Require can_create_tenant permission
     require_permission(db, &claims.sub, "can_create_tenant").await?;
 
     // 2. Load caller's tenant to verify it's the system tenant
-    let caller_tenant = TenantService::load_tenant(db, &claims.tenant_id, "Tenant de l'utilisateur introuvable").await?;
+    let caller_tenant =
+        TenantService::load_tenant(db, &claims.tenant_id, "Tenant de l'utilisateur introuvable")
+            .await?;
 
     if !caller_tenant.is_system {
         return Err(ApiError::Unauthorized(
-            "Seul un utilisateur du tenant système est autorisé à créer un tenant.".to_string()
+            "Seul un utilisateur du tenant système est autorisé à créer un tenant.".to_string(),
         ));
     }
 
@@ -101,19 +109,22 @@ pub async fn list_tenants(
     State(state): State<Arc<AppState>>,
     Query(query): Query<ListTenantsQuery>,
 ) -> Result<Json<PaginatedTenantResponse>, ApiError> {
-    let db = state.db.as_ref().ok_or_else(|| {
-        ApiError::Internal("La base de données n'est pas disponible".to_string())
-    })?;
+    let db = state
+        .db
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("La base de données n'est pas disponible".to_string()))?;
 
     // 1. Require can_read_tenant permission
     require_permission(db, &claims.sub, "can_read_tenant").await?;
 
     // 2. Load caller's tenant to verify it's the system tenant
-    let caller_tenant = TenantService::load_tenant(db, &claims.tenant_id, "Tenant de l'utilisateur introuvable").await?;
+    let caller_tenant =
+        TenantService::load_tenant(db, &claims.tenant_id, "Tenant de l'utilisateur introuvable")
+            .await?;
 
     if !caller_tenant.is_system {
         return Err(ApiError::Unauthorized(
-            "Seul un utilisateur du tenant système est autorisé à lister les tenants.".to_string()
+            "Seul un utilisateur du tenant système est autorisé à lister les tenants.".to_string(),
         ));
     }
 
@@ -127,11 +138,13 @@ pub async fn list_tenants(
         query.is_active,
         query.created_after,
         query.created_before,
+        query.country_code,
         page,
         per_page,
         query.order_by,
         query.order_type,
-    ).await?;
+    )
+    .await?;
     Ok(Json(response))
 }
 
@@ -151,9 +164,10 @@ pub async fn get_tenant(
     Extension(claims): Extension<Claims>,
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<TenantResponse>, ApiError> {
-    let db = state.db.as_ref().ok_or_else(|| {
-        ApiError::Internal("La base de données n'est pas disponible".to_string())
-    })?;
+    let db = state
+        .db
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("La base de données n'est pas disponible".to_string()))?;
 
     // Require can_read_tenant permission to see detail of own tenant
     require_permission(db, &claims.sub, "can_read_tenant").await?;
@@ -189,18 +203,20 @@ pub async fn update_tenant(
     Query(query): Query<UpdateTenantQuery>,
     Json(payload): Json<UpdateTenantPayload>,
 ) -> Result<Json<TenantResponse>, ApiError> {
-    let db = state.db.as_ref().ok_or_else(|| {
-        ApiError::Internal("La base de données n'est pas disponible".to_string())
-    })?;
+    let db = state
+        .db
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("La base de données n'est pas disponible".to_string()))?;
 
     // Check permission
     require_permission(db, &claims.sub, "can_update_tenant").await?;
 
     let target_tenant_id = query.tenant_id.as_deref().unwrap_or(&claims.tenant_id);
 
-    let caller_has_credentials_permission = check_permission(db, &claims.sub, "can_update_tenant_credentials")
-        .await
-        .map_err(|e| ApiError::Internal(e.to_string()))?;
+    let caller_has_credentials_permission =
+        check_permission(db, &claims.sub, "can_update_tenant_credentials")
+            .await
+            .map_err(|e| ApiError::Internal(e.to_string()))?;
 
     let response = TenantService::update_tenant(
         db,
@@ -209,7 +225,8 @@ pub async fn update_tenant(
         target_tenant_id,
         payload,
         caller_has_credentials_permission,
-    ).await?;
+    )
+    .await?;
 
     Ok(Json(response))
 }
@@ -231,9 +248,10 @@ pub async fn get_tenant_by_id(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<TenantResponse>, ApiError> {
-    let db = state.db.as_ref().ok_or_else(|| {
-        ApiError::Internal("La base de données n'est pas disponible".to_string())
-    })?;
+    let db = state
+        .db
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("La base de données n'est pas disponible".to_string()))?;
 
     require_permission(db, &claims.sub, "can_read_tenant").await?;
 
@@ -270,9 +288,10 @@ pub async fn delete_tenant(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<TenantResponse>, ApiError> {
-    let db = state.db.as_ref().ok_or_else(|| {
-        ApiError::Internal("La base de données n'est pas disponible".to_string())
-    })?;
+    let db = state
+        .db
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("La base de données n'est pas disponible".to_string()))?;
 
     // 1. Require can_delete_tenant permission
     require_permission(db, &claims.sub, "can_delete_tenant").await?;
@@ -304,21 +323,28 @@ pub async fn set_tenant_two_factor(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<SetTenantTwoFactorPayload>,
 ) -> Result<Json<TenantResponse>, ApiError> {
-    let db = state.db.as_ref().ok_or_else(|| {
-        ApiError::Internal("La base de données n'est pas disponible".to_string())
-    })?;
+    let db = state
+        .db
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("La base de données n'est pas disponible".to_string()))?;
 
     // 1. Check permission
-    require_permission(db, &claims.sub, "can_set_tenant_two_factor").await?;
+    require_permission(db, &claims.sub, "can_manage_two_factor_for_tenant").await?;
 
-
-
-    // 3. Enforce the rule:
-    // Determine the target tenant_id: default to caller's tenant_id if not specified in the payload.
+    // 2. Determine target tenant
     let target_tenant_id = payload.tenant_id.as_deref().unwrap_or(&claims.tenant_id);
 
-    crate::utils::auth::require_tenant_access(db, &claims.tenant_id, target_tenant_id, &claims.sub, "update").await?;
+    // 3. Cross-tenant check
+    crate::utils::auth::require_tenant_access(
+        db,
+        &claims.tenant_id,
+        target_tenant_id,
+        &claims.sub,
+        "update",
+    )
+    .await?;
 
-    let response = TenantService::set_two_factor(db, target_tenant_id, payload.two_factor_enabled).await?;
+    let response =
+        TenantService::set_two_factor(db, target_tenant_id, payload.two_factor_enabled).await?;
     Ok(Json(response))
 }

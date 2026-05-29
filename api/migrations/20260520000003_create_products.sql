@@ -13,9 +13,9 @@ CREATE TABLE products (
     image_url       TEXT,
     is_active       BOOLEAN NOT NULL DEFAULT true,
     requires_prescription BOOLEAN NOT NULL DEFAULT false,
-    created_at      TIMESTAMP NOT NULL,
-    updated_at      TIMESTAMP NOT NULL,
-    deleted_at      TIMESTAMP,
+    created_at      DATETIME NOT NULL,
+    updated_at      DATETIME NOT NULL,
+    deleted_at      DATETIME,
     CONSTRAINT uniq_tenant_product_barcode UNIQUE (tenant_id, barcode)
 );
 
