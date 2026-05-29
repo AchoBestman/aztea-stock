@@ -177,6 +177,107 @@ export interface SyncLog {
   finished_at: string | null;
 }
 
+export interface Product {
+  id: string;
+  tenant_id: string;
+  category_id: string | null;
+  name: string;
+  description: string | null;
+  barcode: string | null;
+  sku: string | null;
+  price_buy: number;
+  price_sell: number;
+  is_active: boolean;
+  stock_quantity: number;
+  stock_min: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Category {
+  id: string;
+  tenant_id: string;
+  parent_id: string | null;
+  name: string;
+  description: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StockItem {
+  id: string;
+  tenant_id: string;
+  product_id: string;
+  product_name: string;
+  quantity: number;
+  low_stock_threshold: number;
+  unit_location: string | null;
+  batch_number: string | null;
+  expiry_date: string | null;
+  updated_at: string;
+}
+
+export interface StockOperation {
+  id: string;
+  tenant_id: string;
+  product_id: string;
+  operation_type: string;
+  quantity: number;
+  previous_stock: number;
+  new_stock: number;
+  reason: string | null;
+  reference_id: string | null;
+  created_at: string;
+}
+
+export interface SaleItem {
+  id: string;
+  product_id: string;
+  product_name: string;
+  quantity: number;
+  unit_price: number;
+  line_total: number;
+}
+
+export interface Sale {
+  id: string;
+  tenant_id: string;
+  user_id: string;
+  receipt_number: string;
+  customer_name: string | null;
+  subtotal: number;
+  tax_total: number;
+  discount_total: number;
+  total: number;
+  amount_paid: number;
+  change_given: number;
+  payment_method: string;
+  status: string;
+  sold_at: string;
+  created_at: string;
+  items: SaleItem[];
+}
+
+export interface Purchase {
+  id: string;
+  tenant_id: string;
+  supplier_name: string | null;
+  total_amount: number;
+  status: string;
+  created_at: string;
+}
+
+export interface Alert {
+  id: string;
+  tenant_id: string;
+  alert_type: string;
+  message: string;
+  is_read: boolean;
+  reference_id: string | null;
+  created_at: string;
+}
+
 export function getStoredToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
@@ -228,12 +329,12 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   return response.json() as Promise<T>;
 }
 
-function qs(params: Record<string, string | number | undefined | null>): string {
-  const sp = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) {
-    if (v !== undefined && v !== null && v !== "") sp.set(k, String(v));
-  }
-  const s = sp.toString();
+function qs(params: Record<string, string | number | boolean | null | undefined>): string {
+  const q = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null) q.append(k, v.toString());
+  });
+  const s = q.toString();
   return s ? `?${s}` : "";
 }
 
@@ -412,8 +513,44 @@ export const api = {
   },
 
   permissions: {
-    listGrouped: () =>
-      request<GroupedPermission[]>("/admin/permissions"),
+    listGrouped: () => request<GroupedPermission[]>("/admin/permissions"),
+  },
+
+  products: {
+    list: (params: { tenant_id: string; page?: number; per_page?: number; search?: string; category_id?: string }) =>
+      request<Paginated<Product>>(`/admin/products${qs(params)}`),
+    get: (id: string) => request<Product>(`/api/v1/products/${id}`),
+  },
+
+  categories: {
+    list: (params: { tenant_id: string; page?: number; per_page?: number; search?: string }) =>
+      request<Paginated<Category>>(`/api/v1/categories${qs(params)}`),
+  },
+
+  sales: {
+    list: (params: { tenant_id: string; page?: number; per_page?: number; status?: string; start_date?: string; end_date?: string }) =>
+      request<Paginated<Sale>>(`/api/v1/sales${qs(params)}`),
+    get: (id: string) => request<Sale>(`/api/v1/sales/${id}`),
+    export: (params: { tenant_id: string; start_date?: string; end_date?: string; format: string }) =>
+      request<Sale[]>(`/api/v1/sales/export${qs(params)}`),
+  },
+
+  purchases: {
+    list: (params: { tenant_id: string; page?: number; per_page?: number }) =>
+      request<Paginated<Purchase>>(`/api/v1/purchases${qs(params)}`),
+    get: (id: string) => request<Purchase>(`/api/v1/purchases/${id}`),
+  },
+
+  stock: {
+    list: (params: { tenant_id: string; page?: number; per_page?: number; product_id?: string; is_low_stock?: boolean }) =>
+      request<Paginated<StockOperation>>(`/api/v1/stock/operations${qs(params)}`),
+    listItems: (params: { tenant_id: string; page?: number; per_page?: number; search?: string; is_low_stock?: boolean }) =>
+      request<Paginated<StockItem>>(`/api/v1/stock/items${qs(params)}`),
+  },
+
+  alerts: {
+    list: (params: { tenant_id: string; page?: number; per_page?: number; is_read?: boolean }) =>
+      request<Paginated<Alert>>(`/api/v1/alerts${qs(params)}`),
   },
 };
 

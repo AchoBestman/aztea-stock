@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, KeyRound, Mail, Pencil, Power, ShieldPlus, Trash2, UserPlus } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, KeyRound, Mail, Pencil, Power, ShieldPlus, Trash2, UserPlus } from "lucide-react";
 import toast from "react-hot-toast";
 import {
   api,
@@ -19,6 +19,8 @@ import Modal from "../components/Modal";
 import GeoFields, { type GeoValues } from "../components/GeoFields";
 import AvatarUpload from "../components/AvatarUpload";
 import LogoUrlField from "../components/LogoUrlField";
+import AdminDataView from "../components/AdminDataView";
+import { TenantStats } from "../components/TenantStats";
 import { useR2UploadAvailable } from "../hooks/useR2Upload";
 import { useAuthStore } from "../store/authStore";
 import { Switch } from "@/components/Switch";
@@ -28,8 +30,13 @@ export default function TenantDetail() {
   const r2UploadAvailable = useR2UploadAvailable();
   const { id } = useParams<{ id: string }>();
   const [tenant, setTenant] = useState<Tenant | null>(null);
+  const [activeTab, setActiveTab] = useState<string>("None");
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [licenses, setLicenses] = useState<License[]>([]);
+  const [subPage, setSubPage] = useState(1);
+  const [subTotalPages, setSubTotalPages] = useState(1);
+  const [licPage, setLicPage] = useState(1);
+  const [licTotalPages, setLicTotalPages] = useState(1);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [roleModal, setRoleModal] = useState(false);
@@ -62,21 +69,21 @@ export default function TenantDetail() {
   const load = async () => {
     if (!id) return;
     try {
-      const [t, subs, lics, us, rs] = await Promise.all([
-        api.tenants.get(id),
-        api.subscriptions.list({ tenant_id: id, per_page: 50 }),
-        api.licenses.list({ tenant_id: id, per_page: 50 }),
-        api.users.list(id),
-        api.roles.list(id),
-      ]);
+      const rs = await api.roles.list(id);
+      setRoles(rs);
+      
+      const us = await api.users.list(id);
+      setUsers(us);
+
+      const t = await api.tenants.get(id);
       setTenant(t);
       setForm({
         name: t.name,
         business_type: t.business_type,
         email: t.email,
-        phone: t.phone ?? undefined,
-        address: t.address ?? undefined,
-        sender_email: t.sender_email ?? undefined,
+        phone: t.phone || "",
+        address: t.address || "",
+        sender_email: t.sender_email || "",
         sender_user: t.sender_user_encrypted ? "********" : "",
         sender_password: "",
       });
@@ -86,10 +93,28 @@ export default function TenantDetail() {
         city: t.city || "",
         timezone: t.timezone || "",
       });
-      setSubscriptions(subs.data);
-      setLicenses(lics.data);
-      setUsers(us);
-      setRoles(rs);
+    } catch (e) {
+      toast.error(getErrMsg(e));
+    }
+  };
+
+  const loadSubs = async () => {
+    if (!id) return;
+    try {
+      const res = await api.subscriptions.list({ tenant_id: id, page: subPage, per_page: 5 });
+      setSubscriptions(res.data);
+      setSubTotalPages(res.total_pages);
+    } catch (e) {
+      toast.error(getErrMsg(e));
+    }
+  };
+
+  const loadLicenses = async () => {
+    if (!id) return;
+    try {
+      const res = await api.licenses.list({ tenant_id: id, page: licPage, per_page: 5 });
+      setLicenses(res.data);
+      setLicTotalPages(res.total_pages);
     } catch (e) {
       toast.error(getErrMsg(e));
     }
@@ -98,6 +123,14 @@ export default function TenantDetail() {
   useEffect(() => {
     void load();
   }, [id]);
+
+  useEffect(() => {
+    void loadSubs();
+  }, [id, subPage]);
+
+  useEffect(() => {
+    void loadLicenses();
+  }, [id, licPage]);
 
   const getErrMsg = (err: unknown): string => {
     if (err instanceof Error) return err.message;
@@ -649,6 +682,25 @@ export default function TenantDetail() {
               ))}
             </ul>
           )}
+          {subTotalPages > 1 && (
+            <div className="flex items-center justify-center gap-4 mt-4">
+              <button
+                disabled={subPage <= 1}
+                onClick={() => setSubPage(p => p - 1)}
+                className="p-1 rounded-lg border border-border disabled:opacity-40 cursor-pointer"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="text-xs font-semibold">Page {subPage} / {subTotalPages}</span>
+              <button
+                disabled={subPage >= subTotalPages}
+                onClick={() => setSubPage(p => p + 1)}
+                className="p-1 rounded-lg border border-border disabled:opacity-40 cursor-pointer"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
         </Section>
       )}
 
@@ -691,6 +743,25 @@ export default function TenantDetail() {
                 </li>
               ))}
             </ul>
+          )}
+          {licTotalPages > 1 && (
+            <div className="flex items-center justify-center gap-4 mt-4">
+              <button
+                disabled={licPage <= 1}
+                onClick={() => setLicPage(p => p - 1)}
+                className="p-1 rounded-lg border border-border disabled:opacity-40 cursor-pointer"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="text-xs font-semibold">Page {licPage} / {licTotalPages}</span>
+              <button
+                disabled={licPage >= licTotalPages}
+                onClick={() => setLicPage(p => p + 1)}
+                className="p-1 rounded-lg border border-border disabled:opacity-40 cursor-pointer"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
           )}
         </Section>
       )}
@@ -1013,6 +1084,35 @@ export default function TenantDetail() {
         onConfirm={() => confirmData?.onConfirm()}
         onCancel={() => setConfirmData(null)}
       />
+
+      <div className="pt-6 border-t border-border">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-bold">Données Opérationnelles</h3>
+          <select
+            className="form-select max-w-[200px]"
+            value={activeTab}
+            onChange={(e) => setActiveTab(e.target.value)}
+          >
+            <option value="None">-- Sélectionner --</option>
+            <option value="Stats">Statistiques</option>
+            <option value="Alerts">Alertes</option>
+            <option value="Categories">Catégories</option>
+            <option value="Products">Produits</option>
+            <option value="SyncLogs">Sync Logs</option>
+            <option value="Sales">Ventes</option>
+            <option value="Purchases">Achats</option>
+            <option value="Stock">Stock</option>
+          </select>
+        </div>
+
+        {activeTab === "Stats" && id && (
+          <TenantStats tenantId={id} />
+        )}
+
+        {activeTab !== "None" && activeTab !== "Stats" && id && (
+          <AdminDataView tenantId={id} type={activeTab as any} />
+        )}
+      </div>
     </div>
   );
 }
