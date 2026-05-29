@@ -92,15 +92,15 @@ pub struct SaleResponse {
     #[schema(example = "completed")]
     pub status: String,
     pub notes: Option<String>,
-    pub sold_at: String,
-    pub created_at: String,
+    pub sold_at: chrono::DateTime<chrono::FixedOffset>,
+    pub created_at: chrono::DateTime<chrono::FixedOffset>,
     pub items: Vec<SaleItemResponse>,
 }
 
 #[derive(Debug, Serialize, Clone, ToSchema)]
 pub struct ReceiptPrintResponse {
     pub receipt_number: String,
-    pub date: String,
+    pub date: chrono::DateTime<chrono::FixedOffset>,
     pub cashier: Option<String>,
     pub customer_name: Option<String>,
     pub subtotal: f64,
@@ -181,8 +181,8 @@ pub struct PurchaseResponse {
     #[schema(example = "received")]
     pub status: String,
     pub notes: Option<String>,
-    pub purchased_at: String,
-    pub created_at: String,
+    pub purchased_at: chrono::DateTime<chrono::FixedOffset>,
+    pub created_at: chrono::DateTime<chrono::FixedOffset>,
     pub items: Vec<PurchaseItemResponse>,
 }
 
@@ -210,7 +210,7 @@ pub struct AlertResponse {
     pub is_read: bool,
     #[schema(example = false)]
     pub is_resolved: bool,
-    pub triggered_at: String,
+    pub triggered_at: chrono::DateTime<chrono::FixedOffset>,
 }
 
 // --- Sync Log ---
@@ -220,7 +220,7 @@ pub struct CreateSyncLogPayload {
     pub tenant_id: Option<String>,
     pub device_id: String,
     pub sync_type: String, // push, pull, full
-    pub status: String, // success, partial, failed
+    pub status: String,    // success, partial, failed
     pub records_pushed: i32,
     pub records_pulled: i32,
     pub error_message: Option<String>,
@@ -243,8 +243,8 @@ pub struct SyncLogResponse {
     #[schema(example = 5)]
     pub records_pulled: i32,
     pub error_message: Option<String>,
-    pub started_at: String,
-    pub finished_at: Option<String>,
+    pub started_at: chrono::DateTime<chrono::FixedOffset>,
+    pub finished_at: Option<chrono::DateTime<chrono::FixedOffset>>,
 }
 
 #[derive(Debug, Serialize, Clone, ToSchema)]

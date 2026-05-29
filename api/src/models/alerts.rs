@@ -14,7 +14,7 @@ pub struct Model {
     pub current_qty: Option<f64>,
     pub is_read: bool,
     pub is_resolved: bool,
-    pub triggered_at: String,
+    pub triggered_at: DateTimeWithTimeZone,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

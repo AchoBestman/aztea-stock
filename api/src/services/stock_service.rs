@@ -1,14 +1,17 @@
+use crate::{
+    dtos::stock_dto::{
+        CreateStockItemPayload, CreateStockMovementPayload, StockItemResponse,
+        StockMovementResponse, UpdateStockItemPayload,
+    },
+    errors::ApiError,
+    models::{stock_item, stock_movement},
+    repositories::{
+        product_repository::ProductRepository, stock_repository::StockRepository,
+        user_repository::UserRepository,
+    },
+};
 use sea_orm::DatabaseConnection;
 use validator::Validate;
-use crate::{
-    errors::ApiError,
-    repositories::{stock_repository::StockRepository, product_repository::ProductRepository, user_repository::UserRepository},
-    dtos::stock_dto::{
-        CreateStockItemPayload, UpdateStockItemPayload, StockItemResponse,
-        CreateStockMovementPayload, StockMovementResponse
-    },
-    models::{stock_item, stock_movement},
-};
 
 pub struct StockService;
 
@@ -21,22 +24,38 @@ impl StockService {
         caller_tenant_id: &str,
         payload: CreateStockItemPayload,
     ) -> Result<StockItemResponse, ApiError> {
-        payload.validate().map_err(|e| ApiError::BadRequest(e.to_string()))?;
+        payload
+            .validate()
+            .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
         // Verify product exists under this tenant
         let prod = ProductRepository::find_by_id(db, &payload.product_id, caller_tenant_id)
             .await?
-            .ok_or_else(|| ApiError::BadRequest("Produit spécifié introuvable pour ce tenant.".to_string()))?;
+            .ok_or_else(|| {
+                ApiError::BadRequest("Produit spécifié introuvable pour ce tenant.".to_string())
+            })?;
 
         // Check if stock item already exists for this product
-        if let Some(_) = StockRepository::find_stock_item_by_product_id(db, &payload.product_id, caller_tenant_id).await? {
-            return Err(ApiError::BadRequest("Un article de stock existe déjà pour ce produit.".to_string()));
+        if let Some(_) = StockRepository::find_stock_item_by_product_id(
+            db,
+            &payload.product_id,
+            caller_tenant_id,
+        )
+        .await?
+        {
+            return Err(ApiError::BadRequest(
+                "Un article de stock existe déjà pour ce produit.".to_string(),
+            ));
         }
 
         let id = uuid::Uuid::new_v4().to_string();
         let quantity = payload.quantity.unwrap_or(0.0);
         let quantity_reserved = payload.quantity_reserved.unwrap_or(0.0);
         let low_stock_threshold = payload.low_stock_threshold.unwrap_or(5.0);
+
+        let expiry_date = payload
+            .expiry_date
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok());
 
         let created = StockRepository::create_stock_item(
             db,
@@ -48,8 +67,9 @@ impl StockService {
             low_stock_threshold,
             payload.unit_location,
             payload.batch_number,
-            payload.expiry_date,
-        ).await?;
+            expiry_date,
+        )
+        .await?;
 
         // If initial quantity is greater than 0, create an initial stock movement
         if quantity > 0.0 {
@@ -66,7 +86,8 @@ impl StockService {
                 quantity,
                 None,
                 Some("Stock initial lors de la création de la fiche".to_string()),
-            ).await?;
+            )
+            .await?;
         }
 
         Self::map_item_to_response(db, created, &prod.name).await
@@ -82,7 +103,14 @@ impl StockService {
             .await?
             .ok_or_else(|| ApiError::NotFound("Article de stock introuvable".to_string()))?;
 
-        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &model.tenant_id, caller_user_id, "read").await?;
+        crate::utils::auth::require_tenant_access(
+            db,
+            caller_tenant_id,
+            &model.tenant_id,
+            caller_user_id,
+            "read",
+        )
+        .await?;
 
         let prod = ProductRepository::find_by_id(db, &model.product_id, caller_tenant_id)
             .await?
@@ -100,7 +128,14 @@ impl StockService {
         params: crate::utils::pagination::PaginationParams,
     ) -> Result<crate::utils::pagination::PaginatedResponse<StockItemResponse>, ApiError> {
         let final_tenant_id = if let Some(ref t_id) = params.tenant_id {
-            crate::utils::auth::require_tenant_access(db, caller_tenant_id, t_id, caller_user_id, "read").await?;
+            crate::utils::auth::require_tenant_access(
+                db,
+                caller_tenant_id,
+                t_id,
+                caller_user_id,
+                "read",
+            )
+            .await?;
             t_id.clone()
         } else {
             caller_tenant_id.to_string()
@@ -112,7 +147,8 @@ impl StockService {
             category_id,
             is_low_stock,
             params,
-        ).await?;
+        )
+        .await?;
 
         let mut data = Vec::with_capacity(paginated.data.len());
         for item in paginated.data {
@@ -139,47 +175,60 @@ impl StockService {
         caller_tenant_id: &str,
         payload: UpdateStockItemPayload,
     ) -> Result<StockItemResponse, ApiError> {
-        payload.validate().map_err(|e| ApiError::BadRequest(e.to_string()))?;
+        payload
+            .validate()
+            .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
         let item = StockRepository::find_stock_item_by_id(db, id, caller_tenant_id)
             .await?
             .ok_or_else(|| ApiError::NotFound("Article de stock introuvable".to_string()))?;
 
-        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &item.tenant_id, caller_user_id, "update").await?;
-
-        let final_qty = payload.quantity.unwrap_or(item.quantity);
-        let final_reserved = payload.quantity_reserved.unwrap_or(item.quantity_reserved);
-        let final_threshold = payload.low_stock_threshold.unwrap_or(item.low_stock_threshold);
+        crate::utils::auth::require_tenant_access(
+            db,
+            caller_tenant_id,
+            &item.tenant_id,
+            caller_user_id,
+            "update",
+        )
+        .await?;
 
         // If the quantity was changed manually, register an adjustment movement
-        if final_qty != item.quantity {
-            let movement_id = uuid::Uuid::new_v4().to_string();
-            StockRepository::create_stock_movement(
-                db,
-                &movement_id,
-                caller_tenant_id,
-                &item.product_id,
-                Some(caller_user_id.to_string()),
-                "adjustment",
-                item.quantity,
-                final_qty - item.quantity,
-                final_qty,
-                None,
-                Some("Ajustement manuel de quantité".to_string()),
-            ).await?;
+        if let Some(new_qty) = payload.quantity {
+            if new_qty != item.quantity {
+                let movement_id = uuid::Uuid::new_v4().to_string();
+                StockRepository::create_stock_movement(
+                    db,
+                    &movement_id,
+                    caller_tenant_id,
+                    &item.product_id,
+                    Some(caller_user_id.to_string()),
+                    "adjustment",
+                    item.quantity,
+                    new_qty - item.quantity,
+                    new_qty,
+                    None,
+                    Some("Ajustement manuel de quantité".to_string()),
+                )
+                .await?;
+            }
         }
+
+        let expiry_date = payload
+            .expiry_date
+            .map(|os| os.and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok()));
 
         let updated = StockRepository::update_stock_item(
             db,
             id,
             caller_tenant_id,
-            final_qty,
-            final_reserved,
-            final_threshold,
+            payload.quantity,
+            payload.quantity_reserved,
+            payload.low_stock_threshold,
             payload.unit_location,
             payload.batch_number,
-            payload.expiry_date,
-        ).await?;
+            expiry_date,
+        )
+        .await?;
 
         let prod = ProductRepository::find_by_id(db, &updated.product_id, caller_tenant_id)
             .await?
@@ -198,7 +247,14 @@ impl StockService {
             .await?
             .ok_or_else(|| ApiError::NotFound("Article de stock introuvable".to_string()))?;
 
-        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &item.tenant_id, caller_user_id, "delete").await?;
+        crate::utils::auth::require_tenant_access(
+            db,
+            caller_tenant_id,
+            &item.tenant_id,
+            caller_user_id,
+            "delete",
+        )
+        .await?;
 
         StockRepository::delete_stock_item(db, id, caller_tenant_id).await
     }
@@ -211,15 +267,25 @@ impl StockService {
         caller_tenant_id: &str,
         payload: CreateStockMovementPayload,
     ) -> Result<StockMovementResponse, ApiError> {
-        payload.validate().map_err(|e| ApiError::BadRequest(e.to_string()))?;
+        payload
+            .validate()
+            .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
         // Verify product exists
         let prod = ProductRepository::find_by_id(db, &payload.product_id, caller_tenant_id)
             .await?
-            .ok_or_else(|| ApiError::BadRequest("Produit spécifié introuvable pour ce tenant.".to_string()))?;
+            .ok_or_else(|| {
+                ApiError::BadRequest("Produit spécifié introuvable pour ce tenant.".to_string())
+            })?;
 
         // Try to find existing stock item, or create one if it doesn't exist yet
-        let item = match StockRepository::find_stock_item_by_product_id(db, &payload.product_id, caller_tenant_id).await? {
+        let item = match StockRepository::find_stock_item_by_product_id(
+            db,
+            &payload.product_id,
+            caller_tenant_id,
+        )
+        .await?
+        {
             Some(i) => i,
             None => {
                 let id = uuid::Uuid::new_v4().to_string();
@@ -234,7 +300,8 @@ impl StockService {
                     None,
                     None,
                     None,
-                ).await?
+                )
+                .await?
             }
         };
 
@@ -243,7 +310,9 @@ impl StockService {
         let qty_after = qty_before + qty_change;
 
         if qty_after < 0.0 {
-            return Err(ApiError::BadRequest("Le stock ne peut pas devenir négatif.".to_string()));
+            return Err(ApiError::BadRequest(
+                "Le stock ne peut pas devenir négatif.".to_string(),
+            ));
         }
 
         // 1. Update stock item quantity
@@ -251,13 +320,14 @@ impl StockService {
             db,
             &item.id,
             caller_tenant_id,
-            qty_after,
-            item.quantity_reserved,
-            item.low_stock_threshold,
+            Some(qty_after),
             None,
             None,
             None,
-        ).await?;
+            None,
+            None,
+        )
+        .await?;
 
         // 2. Create the movement record
         let movement_id = uuid::Uuid::new_v4().to_string();
@@ -273,7 +343,8 @@ impl StockService {
             qty_after,
             payload.reference_id,
             payload.note,
-        ).await?;
+        )
+        .await?;
 
         // 3. Map to response
         let caller_name = UserRepository::find_by_id(db, caller_user_id, caller_tenant_id)
@@ -292,7 +363,14 @@ impl StockService {
         params: crate::utils::pagination::PaginationParams,
     ) -> Result<crate::utils::pagination::PaginatedResponse<StockMovementResponse>, ApiError> {
         let final_tenant_id = if let Some(ref t_id) = params.tenant_id {
-            crate::utils::auth::require_tenant_access(db, caller_tenant_id, t_id, caller_user_id, "read").await?;
+            crate::utils::auth::require_tenant_access(
+                db,
+                caller_tenant_id,
+                t_id,
+                caller_user_id,
+                "read",
+            )
+            .await?;
             t_id.clone()
         } else {
             caller_tenant_id.to_string()
@@ -304,7 +382,8 @@ impl StockService {
             product_id,
             movement_type,
             params,
-        ).await?;
+        )
+        .await?;
 
         let mut data = Vec::with_capacity(paginated.data.len());
         for m in paginated.data {
@@ -313,7 +392,9 @@ impl StockService {
                 .map(|p| p.name)
                 .unwrap_or_default();
             let u_name = if let Some(ref uid) = m.user_id {
-                UserRepository::find_by_id(db, uid, &final_tenant_id).await?.map(|u| u.name)
+                UserRepository::find_by_id(db, uid, &final_tenant_id)
+                    .await?
+                    .map(|u| u.name)
             } else {
                 None
             };
@@ -346,7 +427,7 @@ impl StockService {
             low_stock_threshold: model.low_stock_threshold,
             unit_location: model.unit_location,
             batch_number: model.batch_number,
-            expiry_date: model.expiry_date,
+            expiry_date: model.expiry_date.map(|d| d.to_rfc3339()),
             updated_at: model.updated_at,
         })
     }

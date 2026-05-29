@@ -49,8 +49,7 @@ pub struct StockItemResponse {
     pub batch_number: Option<String>,
     #[schema(example = "2027-12-31")]
     pub expiry_date: Option<String>,
-    #[schema(example = "2026-05-20T10:00:00Z")]
-    pub updated_at: String,
+    pub updated_at: chrono::DateTime<chrono::FixedOffset>,
 }
 
 #[derive(Serialize, ToSchema, Clone, Debug)]
@@ -105,8 +104,7 @@ pub struct StockMovementResponse {
     pub reference_id: Option<String>,
     #[schema(example = "Approvisionnement mensuel de produits")]
     pub note: Option<String>,
-    #[schema(example = "2026-05-20T10:00:00Z")]
-    pub occurred_at: String,
+    pub occurred_at: chrono::DateTime<chrono::FixedOffset>,
 }
 
 #[derive(Serialize, ToSchema, Clone, Debug)]

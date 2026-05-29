@@ -1,10 +1,10 @@
-use sea_orm::{DatabaseConnection, PaginatorTrait};
-use validator::Validate;
 use crate::{
+    dtos::category_dto::{CategoryResponse, CreateCategoryPayload, UpdateCategoryPayload},
     errors::ApiError,
     repositories::category_repository::CategoryRepository,
-    dtos::category_dto::{CreateCategoryPayload, UpdateCategoryPayload, CategoryResponse},
 };
+use sea_orm::{DatabaseConnection, PaginatorTrait};
+use validator::Validate;
 
 pub struct CategoryService;
 
@@ -16,19 +16,39 @@ impl CategoryService {
         target_tenant_id: Option<String>,
         payload: CreateCategoryPayload,
     ) -> Result<CategoryResponse, ApiError> {
-        payload.validate().map_err(|e| ApiError::BadRequest(e.to_string()))?;
+        payload
+            .validate()
+            .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
         let final_tenant_id = if let Some(t_id) = target_tenant_id {
-            crate::utils::auth::require_tenant_access(db, caller_tenant_id, &t_id, caller_user_id, "create").await?;
+            crate::utils::auth::require_tenant_access(
+                db,
+                caller_tenant_id,
+                &t_id,
+                caller_user_id,
+                "create",
+            )
+            .await?;
             t_id
         } else {
             caller_tenant_id.to_string()
         };
 
+        // Uniqueness check
+        if let Some(_) =
+            CategoryRepository::find_by_name(db, &payload.name, &final_tenant_id).await?
+        {
+            return Err(ApiError::BadRequest(
+                "Une catégorie avec ce nom existe déjà pour ce tenant.".to_string(),
+            ));
+        }
+
         if let Some(ref pid) = payload.parent_id {
             let _parent = CategoryRepository::find_by_id(db, pid, &final_tenant_id)
                 .await?
-                .ok_or_else(|| ApiError::BadRequest("Catégorie parente introuvable.".to_string()))?;
+                .ok_or_else(|| {
+                    ApiError::BadRequest("Catégorie parente introuvable.".to_string())
+                })?;
         }
 
         let is_active = payload.is_active.unwrap_or(true);
@@ -43,7 +63,8 @@ impl CategoryService {
             payload.icon,
             payload.parent_id,
             is_active,
-        ).await?;
+        )
+        .await?;
 
         Self::map_to_response(db, created).await
     }
@@ -55,8 +76,8 @@ impl CategoryService {
         caller_tenant_id: &str,
     ) -> Result<CategoryResponse, ApiError> {
         // Find category across tenant bounds using just ID (since ID is globally unique)
-        use sea_orm::{EntityTrait, QueryFilter, ColumnTrait};
         use crate::models::category;
+        use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
         let model = category::Entity::find()
             .filter(category::Column::Id.eq(id))
@@ -67,7 +88,14 @@ impl CategoryService {
             .ok_or_else(|| ApiError::NotFound("Catégorie introuvable".to_string()))?;
 
         // Guard
-        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &model.tenant_id, caller_user_id, "read").await?;
+        crate::utils::auth::require_tenant_access(
+            db,
+            caller_tenant_id,
+            &model.tenant_id,
+            caller_user_id,
+            "read",
+        )
+        .await?;
 
         Self::map_to_response(db, model).await
     }
@@ -82,7 +110,14 @@ impl CategoryService {
         params: crate::utils::pagination::PaginationParams,
     ) -> Result<crate::utils::pagination::PaginatedResponse<CategoryResponse>, ApiError> {
         let final_tenant_id = if let Some(t_id) = target_tenant_id {
-            crate::utils::auth::require_tenant_access(db, caller_tenant_id, &t_id, caller_user_id, "read").await?;
+            crate::utils::auth::require_tenant_access(
+                db,
+                caller_tenant_id,
+                &t_id,
+                caller_user_id,
+                "read",
+            )
+            .await?;
             t_id
         } else {
             caller_tenant_id.to_string()
@@ -94,7 +129,8 @@ impl CategoryService {
             parent_id,
             is_active,
             params,
-        ).await?;
+        )
+        .await?;
 
         let data = Self::map_to_response_list(db, paginated_models.data).await?;
 
@@ -114,10 +150,12 @@ impl CategoryService {
         caller_tenant_id: &str,
         payload: UpdateCategoryPayload,
     ) -> Result<CategoryResponse, ApiError> {
-        payload.validate().map_err(|e| ApiError::BadRequest(e.to_string()))?;
+        payload
+            .validate()
+            .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
-        use sea_orm::{EntityTrait, QueryFilter, ColumnTrait};
         use crate::models::category;
+        use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
         let model = category::Entity::find()
             .filter(category::Column::Id.eq(id))
@@ -127,15 +165,37 @@ impl CategoryService {
             .map_err(|e| ApiError::Database(e))?
             .ok_or_else(|| ApiError::NotFound("Catégorie introuvable".to_string()))?;
 
-        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &model.tenant_id, caller_user_id, "update").await?;
+        crate::utils::auth::require_tenant_access(
+            db,
+            caller_tenant_id,
+            &model.tenant_id,
+            caller_user_id,
+            "update",
+        )
+        .await?;
 
+        if let Some(ref name) = payload.name {
+            if name != &model.name {
+                if let Some(_) =
+                    CategoryRepository::find_by_name(db, name, &model.tenant_id).await?
+                {
+                    return Err(ApiError::BadRequest(
+                        "Une catégorie avec ce nom existe déjà pour ce tenant.".to_string(),
+                    ));
+                }
+            }
+        }
         if let Some(ref pid) = payload.parent_id {
             if pid == id {
-                return Err(ApiError::BadRequest("Une catégorie ne peut pas être son propre parent.".to_string()));
+                return Err(ApiError::BadRequest(
+                    "Une catégorie ne peut pas être son propre parent.".to_string(),
+                ));
             }
             let _parent = CategoryRepository::find_by_id(db, pid, &model.tenant_id)
                 .await?
-                .ok_or_else(|| ApiError::BadRequest("Catégorie parente introuvable.".to_string()))?;
+                .ok_or_else(|| {
+                    ApiError::BadRequest("Catégorie parente introuvable.".to_string())
+                })?;
         }
 
         let is_active = payload.is_active.unwrap_or(model.is_active);
@@ -149,7 +209,8 @@ impl CategoryService {
             payload.icon.or(model.icon),
             payload.parent_id.or(model.parent_id),
             is_active,
-        ).await?;
+        )
+        .await?;
 
         Self::map_to_response(db, updated).await
     }
@@ -160,8 +221,8 @@ impl CategoryService {
         caller_user_id: &str,
         caller_tenant_id: &str,
     ) -> Result<CategoryResponse, ApiError> {
-        use sea_orm::{EntityTrait, QueryFilter, ColumnTrait};
         use crate::models::category;
+        use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
         let model = category::Entity::find()
             .filter(category::Column::Id.eq(id))
@@ -171,7 +232,14 @@ impl CategoryService {
             .map_err(|e| ApiError::Database(e))?
             .ok_or_else(|| ApiError::NotFound("Catégorie introuvable".to_string()))?;
 
-        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &model.tenant_id, caller_user_id, "delete").await?;
+        crate::utils::auth::require_tenant_access(
+            db,
+            caller_tenant_id,
+            &model.tenant_id,
+            caller_user_id,
+            "delete",
+        )
+        .await?;
 
         // Check if it has children
         let children_count = category::Entity::find()
@@ -182,7 +250,10 @@ impl CategoryService {
             .map_err(|e| ApiError::Database(e))?;
 
         if children_count > 0 {
-            return Err(ApiError::BadRequest("Impossible de supprimer cette catégorie car elle contient des sous-catégories.".to_string()));
+            return Err(ApiError::BadRequest(
+                "Impossible de supprimer cette catégorie car elle contient des sous-catégories."
+                    .to_string(),
+            ));
         }
 
         let deleted = CategoryRepository::soft_delete(db, id, &model.tenant_id).await?;
@@ -194,8 +265,8 @@ impl CategoryService {
         model: crate::models::category::Model,
     ) -> Result<CategoryResponse, ApiError> {
         let parent_name = if let Some(ref pid) = model.parent_id {
-            use sea_orm::{EntityTrait, QueryFilter, ColumnTrait};
             use crate::models::category;
+            use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
             category::Entity::find()
                 .filter(category::Column::Id.eq(pid))
                 .filter(category::Column::DeletedAt.is_null())
@@ -230,15 +301,13 @@ impl CategoryService {
             return Ok(Vec::new());
         }
 
-        let parent_ids: std::collections::HashSet<String> = models
-            .iter()
-            .filter_map(|m| m.parent_id.clone())
-            .collect();
+        let parent_ids: std::collections::HashSet<String> =
+            models.iter().filter_map(|m| m.parent_id.clone()).collect();
 
         let mut parent_names_map = std::collections::HashMap::new();
         if !parent_ids.is_empty() {
-            use sea_orm::{EntityTrait, QueryFilter, ColumnTrait};
             use crate::models::category;
+            use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
             let parents = category::Entity::find()
                 .filter(category::Column::Id.is_in(parent_ids))
                 .filter(category::Column::DeletedAt.is_null())
@@ -254,7 +323,10 @@ impl CategoryService {
         Ok(models
             .into_iter()
             .map(|m| {
-                let parent_name = m.parent_id.as_ref().and_then(|pid| parent_names_map.get(pid).cloned());
+                let parent_name = m
+                    .parent_id
+                    .as_ref()
+                    .and_then(|pid| parent_names_map.get(pid).cloned());
                 CategoryResponse {
                     id: m.id,
                     tenant_id: m.tenant_id,

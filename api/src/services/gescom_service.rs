@@ -1,20 +1,18 @@
-use sea_orm::{DatabaseConnection, TransactionTrait, Set};
-use validator::Validate;
 use crate::{
-    errors::ApiError,
-    repositories::{
-        gescom_repository::GescomRepository,
-        product_repository::ProductRepository,
-        stock_repository::StockRepository,
-        user_repository::UserRepository,
-    },
     dtos::gescom_dto::{
-        CreateSalePayload, SaleResponse, SaleItemResponse, RefundSalePayload,
-        CreatePurchasePayload, PurchaseResponse, PurchaseItemResponse,
-        AlertResponse, CreateSyncLogPayload, SyncLogResponse, ReceiptPrintResponse, ReceiptItemLine,
+        AlertResponse, CreatePurchasePayload, CreateSalePayload, CreateSyncLogPayload,
+        PurchaseItemResponse, PurchaseResponse, ReceiptItemLine, ReceiptPrintResponse,
+        RefundSalePayload, SaleItemResponse, SaleResponse, SyncLogResponse,
     },
-    models::{sales, sale_items, purchases, purchase_items},
+    errors::ApiError,
+    models::{purchase_items, purchases, sale_items, sales},
+    repositories::{
+        gescom_repository::GescomRepository, product_repository::ProductRepository,
+        stock_repository::StockRepository, user_repository::UserRepository,
+    },
 };
+use sea_orm::{DatabaseConnection, Set, TransactionTrait};
+use validator::Validate;
 
 pub struct GescomService;
 
@@ -27,16 +25,24 @@ impl GescomService {
         caller_tenant_id: &str,
         payload: CreateSalePayload,
     ) -> Result<SaleResponse, ApiError> {
-        payload.validate().map_err(|e| ApiError::BadRequest(e.to_string()))?;
+        payload
+            .validate()
+            .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
         if payload.items.is_empty() {
-            return Err(ApiError::BadRequest("Une vente doit contenir au moins une ligne d'article.".to_string()));
+            return Err(ApiError::BadRequest(
+                "Une vente doit contenir au moins une ligne d'article.".to_string(),
+            ));
         }
 
         // Validate payment method
         match payload.payment_method.as_str() {
             "cash" | "card" | "mobile_money" | "credit" => {}
-            _ => return Err(ApiError::BadRequest("Mode de paiement invalide.".to_string())),
+            _ => {
+                return Err(ApiError::BadRequest(
+                    "Mode de paiement invalide.".to_string(),
+                ));
+            }
         }
 
         let txn = db.begin().await.map_err(|e| ApiError::Database(e))?;
@@ -52,13 +58,22 @@ impl GescomService {
         for item in &payload.items {
             let prod = ProductRepository::find_by_id(&txn, &item.product_id, caller_tenant_id)
                 .await?
-                .ok_or_else(|| ApiError::BadRequest(format!("Produit spécifié introuvable : {}", item.product_id)))?;
+                .ok_or_else(|| {
+                    ApiError::BadRequest(format!(
+                        "Produit spécifié introuvable : {}",
+                        item.product_id
+                    ))
+                })?;
 
             if item.quantity <= 0.0 {
-                return Err(ApiError::BadRequest("La quantité doit être strictement positive.".to_string()));
+                return Err(ApiError::BadRequest(
+                    "La quantité doit être strictement positive.".to_string(),
+                ));
             }
             if item.unit_price < 0.0 {
-                return Err(ApiError::BadRequest("Le prix unitaire doit être positif.".to_string()));
+                return Err(ApiError::BadRequest(
+                    "Le prix unitaire doit être positif.".to_string(),
+                ));
             }
 
             let tax_rate = item.tax_rate.unwrap_or(0.0);
@@ -89,7 +104,13 @@ impl GescomService {
             sale_items_to_insert.push((active_item, prod.clone()));
 
             // 2. Adjust inventory
-            let stock = match StockRepository::find_stock_item_by_product_id(&txn, &item.product_id, caller_tenant_id).await? {
+            let stock = match StockRepository::find_stock_item_by_product_id(
+                &txn,
+                &item.product_id,
+                caller_tenant_id,
+            )
+            .await?
+            {
                 Some(s) => s,
                 None => {
                     // Create empty stock item if it does not exist
@@ -105,7 +126,8 @@ impl GescomService {
                         None,
                         None,
                         None,
-                    ).await?
+                    )
+                    .await?
                 }
             };
 
@@ -113,7 +135,10 @@ impl GescomService {
             let qty_after = qty_before - item.quantity;
 
             if qty_after < 0.0 {
-                return Err(ApiError::BadRequest(format!("Stock insuffisant pour le produit {}.", prod.name)));
+                return Err(ApiError::BadRequest(format!(
+                    "Stock insuffisant pour le produit {}.",
+                    prod.name
+                )));
             }
 
             // Update stock quantity
@@ -121,13 +146,14 @@ impl GescomService {
                 &txn,
                 &stock.id,
                 caller_tenant_id,
-                qty_after,
-                stock.quantity_reserved,
-                stock.low_stock_threshold,
+                Some(qty_after),
+                Some(stock.quantity_reserved),
+                Some(stock.low_stock_threshold),
                 None,
                 None,
                 None,
-            ).await?;
+            )
+            .await?;
 
             // Create stock movement
             let movement_id = uuid::Uuid::new_v4().to_string();
@@ -143,7 +169,8 @@ impl GescomService {
                 qty_after,
                 Some(sale_id.clone()),
                 Some(format!("Vente liée #{}", sale_id)),
-            ).await?;
+            )
+            .await?;
 
             // Trigger alerts
             if qty_after <= 0.0 {
@@ -155,17 +182,22 @@ impl GescomService {
                     &format!("Rupture de stock complète pour le produit : {}.", prod.name),
                     Some(stock.low_stock_threshold),
                     Some(qty_after),
-                ).await?;
+                )
+                .await?;
             } else if qty_after <= stock.low_stock_threshold {
                 GescomRepository::create_alert(
                     &txn,
                     caller_tenant_id,
                     Some(item.product_id.clone()),
                     "low_stock",
-                    &format!("Alerte stock bas pour le produit: {} (Quantité restante: {}).", prod.name, qty_after),
+                    &format!(
+                        "Alerte stock bas pour le produit: {} (Quantité restante: {}).",
+                        prod.name, qty_after
+                    ),
                     Some(stock.low_stock_threshold),
                     Some(qty_after),
-                ).await?;
+                )
+                .await?;
             }
         }
 
@@ -179,8 +211,12 @@ impl GescomService {
             ));
         }
 
-        let receipt_number = format!("REC-{}-{}", chrono::Utc::now().format("%Y%m%d%H%M"), rand::random::<u16>());
-        let sold_at = chrono::Utc::now().to_rfc3339();
+        let receipt_number = format!(
+            "REC-{}-{}",
+            chrono::Utc::now().format("%Y%m%d%H%M"),
+            rand::random::<u16>()
+        );
+        let sold_at: chrono::DateTime<chrono::FixedOffset> = chrono::Utc::now().into();
 
         let active_sale = sales::ActiveModel {
             id: Set(sale_id.clone()),
@@ -199,7 +235,7 @@ impl GescomService {
             status: Set("completed".to_string()),
             notes: Set(payload.notes),
             sold_at: Set(sold_at),
-            created_at: Set(chrono::Utc::now().to_rfc3339()),
+            created_at: Set(chrono::Utc::now().into()),
         };
 
         let sale = GescomRepository::create_sale(&txn, active_sale).await?;
@@ -254,20 +290,30 @@ impl GescomService {
             .await?
             .ok_or_else(|| ApiError::NotFound("Vente introuvable".to_string()))?;
 
-        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &sale.tenant_id, caller_user_id, "read").await?;
+        crate::utils::auth::require_tenant_access(
+            db,
+            caller_tenant_id,
+            &sale.tenant_id,
+            caller_user_id,
+            "read",
+        )
+        .await?;
 
         let items = GescomRepository::find_sale_items(db, &sale.id).await?;
-        let item_responses = items.into_iter().map(|i| SaleItemResponse {
-            id: i.id,
-            product_id: i.product_id,
-            product_name: i.product_name,
-            product_barcode: i.product_barcode,
-            quantity: i.quantity,
-            unit_price: i.unit_price,
-            tax_rate: i.tax_rate,
-            discount: i.discount,
-            line_total: i.line_total,
-        }).collect();
+        let item_responses = items
+            .into_iter()
+            .map(|i| SaleItemResponse {
+                id: i.id,
+                product_id: i.product_id,
+                product_name: i.product_name,
+                product_barcode: i.product_barcode,
+                quantity: i.quantity,
+                unit_price: i.unit_price,
+                tax_rate: i.tax_rate,
+                discount: i.discount,
+                line_total: i.line_total,
+            })
+            .collect();
 
         Ok(SaleResponse {
             id: sale.id,
@@ -300,7 +346,14 @@ impl GescomService {
         params: crate::utils::pagination::PaginationParams,
     ) -> Result<crate::utils::pagination::PaginatedResponse<SaleResponse>, ApiError> {
         let final_tenant_id = if let Some(ref t_id) = params.tenant_id {
-            crate::utils::auth::require_tenant_access(db, caller_tenant_id, t_id, caller_user_id, "read").await?;
+            crate::utils::auth::require_tenant_access(
+                db,
+                caller_tenant_id,
+                t_id,
+                caller_user_id,
+                "read",
+            )
+            .await?;
             t_id.clone()
         } else {
             caller_tenant_id.to_string()
@@ -312,22 +365,26 @@ impl GescomService {
             customer_name,
             status,
             params,
-        ).await?;
+        )
+        .await?;
 
         let mut data = Vec::with_capacity(paginated.data.len());
         for sale in paginated.data {
             let items = GescomRepository::find_sale_items(db, &sale.id).await?;
-            let item_responses = items.into_iter().map(|i| SaleItemResponse {
-                id: i.id,
-                product_id: i.product_id,
-                product_name: i.product_name,
-                product_barcode: i.product_barcode,
-                quantity: i.quantity,
-                unit_price: i.unit_price,
-                tax_rate: i.tax_rate,
-                discount: i.discount,
-                line_total: i.line_total,
-            }).collect();
+            let item_responses = items
+                .into_iter()
+                .map(|i| SaleItemResponse {
+                    id: i.id,
+                    product_id: i.product_id,
+                    product_name: i.product_name,
+                    product_barcode: i.product_barcode,
+                    quantity: i.quantity,
+                    unit_price: i.unit_price,
+                    tax_rate: i.tax_rate,
+                    discount: i.discount,
+                    line_total: i.line_total,
+                })
+                .collect();
 
             data.push(SaleResponse {
                 id: sale.id,
@@ -370,21 +427,37 @@ impl GescomService {
             .await?
             .ok_or_else(|| ApiError::NotFound("Vente introuvable".to_string()))?;
 
-        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &sale.tenant_id, caller_user_id, "update").await?;
+        crate::utils::auth::require_tenant_access(
+            db,
+            caller_tenant_id,
+            &sale.tenant_id,
+            caller_user_id,
+            "update",
+        )
+        .await?;
 
         if sale.status == "voided" {
-            return Err(ApiError::BadRequest("Cette vente est déjà annulée.".to_string()));
+            return Err(ApiError::BadRequest(
+                "Cette vente est déjà annulée.".to_string(),
+            ));
         }
 
         let txn = db.begin().await.map_err(|e| ApiError::Database(e))?;
 
         // 1. Update sale status to voided
-        let updated_sale = GescomRepository::update_sale_status(&txn, id, caller_tenant_id, "voided").await?;
+        let updated_sale =
+            GescomRepository::update_sale_status(&txn, id, caller_tenant_id, "voided").await?;
 
         // 2. Restore stock for each item
         let items = GescomRepository::find_sale_items(&txn, id).await?;
         for item in &items {
-            let stock = match StockRepository::find_stock_item_by_product_id(&txn, &item.product_id, caller_tenant_id).await? {
+            let stock = match StockRepository::find_stock_item_by_product_id(
+                &txn,
+                &item.product_id,
+                caller_tenant_id,
+            )
+            .await?
+            {
                 Some(s) => s,
                 None => {
                     let stock_id = uuid::Uuid::new_v4().to_string();
@@ -399,7 +472,8 @@ impl GescomService {
                         None,
                         None,
                         None,
-                    ).await?
+                    )
+                    .await?
                 }
             };
 
@@ -410,13 +484,14 @@ impl GescomService {
                 &txn,
                 &stock.id,
                 caller_tenant_id,
-                qty_after,
-                stock.quantity_reserved,
-                stock.low_stock_threshold,
+                Some(qty_after),
+                Some(stock.quantity_reserved),
+                Some(stock.low_stock_threshold),
                 None,
                 None,
                 None,
-            ).await?;
+            )
+            .await?;
 
             // Create movement
             let movement_id = uuid::Uuid::new_v4().to_string();
@@ -432,22 +507,26 @@ impl GescomService {
                 qty_after,
                 Some(id.to_string()),
                 Some(format!("Annulation de la vente #{}", sale.receipt_number)),
-            ).await?;
+            )
+            .await?;
         }
 
         txn.commit().await.map_err(|e| ApiError::Database(e))?;
 
-        let item_responses = items.into_iter().map(|i| SaleItemResponse {
-            id: i.id,
-            product_id: i.product_id,
-            product_name: i.product_name,
-            product_barcode: i.product_barcode,
-            quantity: i.quantity,
-            unit_price: i.unit_price,
-            tax_rate: i.tax_rate,
-            discount: i.discount,
-            line_total: i.line_total,
-        }).collect();
+        let item_responses = items
+            .into_iter()
+            .map(|i| SaleItemResponse {
+                id: i.id,
+                product_id: i.product_id,
+                product_name: i.product_name,
+                product_barcode: i.product_barcode,
+                quantity: i.quantity,
+                unit_price: i.unit_price,
+                tax_rate: i.tax_rate,
+                discount: i.discount,
+                line_total: i.line_total,
+            })
+            .collect();
 
         Ok(SaleResponse {
             id: updated_sale.id,
@@ -478,34 +557,61 @@ impl GescomService {
         caller_tenant_id: &str,
         payload: RefundSalePayload,
     ) -> Result<SaleResponse, ApiError> {
-        payload.validate().map_err(|e| ApiError::BadRequest(e.to_string()))?;
+        payload
+            .validate()
+            .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
         let sale = GescomRepository::find_sale_by_id(db, id, caller_tenant_id)
             .await?
             .ok_or_else(|| ApiError::NotFound("Vente introuvable".to_string()))?;
 
-        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &sale.tenant_id, caller_user_id, "update").await?;
+        crate::utils::auth::require_tenant_access(
+            db,
+            caller_tenant_id,
+            &sale.tenant_id,
+            caller_user_id,
+            "update",
+        )
+        .await?;
 
         if sale.status == "voided" {
-            return Err(ApiError::BadRequest("Impossible de rembourser une vente annulée.".to_string()));
+            return Err(ApiError::BadRequest(
+                "Impossible de rembourser une vente annulée.".to_string(),
+            ));
         }
 
         let txn = db.begin().await.map_err(|e| ApiError::Database(e))?;
 
         // 1. Update sale status to refunded
-        let updated_sale = GescomRepository::update_sale_status(&txn, id, caller_tenant_id, "refunded").await?;
+        let updated_sale =
+            GescomRepository::update_sale_status(&txn, id, caller_tenant_id, "refunded").await?;
 
         // 2. Process refund quantities and restore stock
         let sale_items = GescomRepository::find_sale_items(&txn, id).await?;
         for refund_item in &payload.refund_items {
-            let original_item = sale_items.iter().find(|i| i.product_id == refund_item.product_id)
-                .ok_or_else(|| ApiError::BadRequest(format!("Le produit {} ne fait pas partie de cette vente.", refund_item.product_id)))?;
+            let original_item = sale_items
+                .iter()
+                .find(|i| i.product_id == refund_item.product_id)
+                .ok_or_else(|| {
+                    ApiError::BadRequest(format!(
+                        "Le produit {} ne fait pas partie de cette vente.",
+                        refund_item.product_id
+                    ))
+                })?;
 
             if refund_item.quantity <= 0.0 || refund_item.quantity > original_item.quantity {
-                return Err(ApiError::BadRequest("Quantité de remboursement invalide.".to_string()));
+                return Err(ApiError::BadRequest(
+                    "Quantité de remboursement invalide.".to_string(),
+                ));
             }
 
-            let stock = match StockRepository::find_stock_item_by_product_id(&txn, &refund_item.product_id, caller_tenant_id).await? {
+            let stock = match StockRepository::find_stock_item_by_product_id(
+                &txn,
+                &refund_item.product_id,
+                caller_tenant_id,
+            )
+            .await?
+            {
                 Some(s) => s,
                 None => {
                     let stock_id = uuid::Uuid::new_v4().to_string();
@@ -520,7 +626,8 @@ impl GescomService {
                         None,
                         None,
                         None,
-                    ).await?
+                    )
+                    .await?
                 }
             };
 
@@ -531,13 +638,14 @@ impl GescomService {
                 &txn,
                 &stock.id,
                 caller_tenant_id,
-                qty_after,
-                stock.quantity_reserved,
-                stock.low_stock_threshold,
+                Some(qty_after),
+                Some(stock.quantity_reserved),
+                Some(stock.low_stock_threshold),
                 None,
                 None,
                 None,
-            ).await?;
+            )
+            .await?;
 
             // Create movement
             let movement_id = uuid::Uuid::new_v4().to_string();
@@ -552,23 +660,30 @@ impl GescomService {
                 refund_item.quantity,
                 qty_after,
                 Some(id.to_string()),
-                Some(format!("Remboursement partiel/total de la vente #{}", sale.receipt_number)),
-            ).await?;
+                Some(format!(
+                    "Remboursement partiel/total de la vente #{}",
+                    sale.receipt_number
+                )),
+            )
+            .await?;
         }
 
         txn.commit().await.map_err(|e| ApiError::Database(e))?;
 
-        let item_responses = sale_items.into_iter().map(|i| SaleItemResponse {
-            id: i.id,
-            product_id: i.product_id,
-            product_name: i.product_name,
-            product_barcode: i.product_barcode,
-            quantity: i.quantity,
-            unit_price: i.unit_price,
-            tax_rate: i.tax_rate,
-            discount: i.discount,
-            line_total: i.line_total,
-        }).collect();
+        let item_responses = sale_items
+            .into_iter()
+            .map(|i| SaleItemResponse {
+                id: i.id,
+                product_id: i.product_id,
+                product_name: i.product_name,
+                product_barcode: i.product_barcode,
+                quantity: i.quantity,
+                unit_price: i.unit_price,
+                tax_rate: i.tax_rate,
+                discount: i.discount,
+                line_total: i.line_total,
+            })
+            .collect();
 
         Ok(SaleResponse {
             id: updated_sale.id,
@@ -601,17 +716,23 @@ impl GescomService {
         let sale = Self::get_sale(db, id, caller_user_id, caller_tenant_id).await?;
 
         let u_name = if let Some(ref uid) = sale.user_id {
-            UserRepository::find_by_id(db, uid, caller_tenant_id).await?.map(|u| u.name)
+            UserRepository::find_by_id(db, uid, caller_tenant_id)
+                .await?
+                .map(|u| u.name)
         } else {
             None
         };
 
-        let items = sale.items.iter().map(|i| ReceiptItemLine {
-            name: i.product_name.clone(),
-            qty: i.quantity,
-            price: i.unit_price,
-            total: i.line_total,
-        }).collect();
+        let items = sale
+            .items
+            .iter()
+            .map(|i| ReceiptItemLine {
+                name: i.product_name.clone(),
+                qty: i.quantity,
+                price: i.unit_price,
+                total: i.line_total,
+            })
+            .collect();
 
         Ok(ReceiptPrintResponse {
             receipt_number: sale.receipt_number,
@@ -639,7 +760,14 @@ impl GescomService {
         end_date: Option<String>,
     ) -> Result<Vec<SaleResponse>, ApiError> {
         let final_tenant_id = if let Some(ref t_id) = target_tenant_id {
-            crate::utils::auth::require_tenant_access(db, caller_tenant_id, t_id, caller_user_id, "read").await?;
+            crate::utils::auth::require_tenant_access(
+                db,
+                caller_tenant_id,
+                t_id,
+                caller_user_id,
+                "read",
+            )
+            .await?;
             t_id.clone()
         } else {
             caller_tenant_id.to_string()
@@ -657,28 +785,27 @@ impl GescomService {
             order_type: None,
         };
 
-        let paginated = GescomRepository::find_sales_paginated(
-            db,
-            &final_tenant_id,
-            None,
-            None,
-            params,
-        ).await?;
+        let paginated =
+            GescomRepository::find_sales_paginated(db, &final_tenant_id, None, None, params)
+                .await?;
 
         let mut data = Vec::with_capacity(paginated.data.len());
         for sale in paginated.data {
             let items = GescomRepository::find_sale_items(db, &sale.id).await?;
-            let item_responses = items.into_iter().map(|i| SaleItemResponse {
-                id: i.id,
-                product_id: i.product_id,
-                product_name: i.product_name,
-                product_barcode: i.product_barcode,
-                quantity: i.quantity,
-                unit_price: i.unit_price,
-                tax_rate: i.tax_rate,
-                discount: i.discount,
-                line_total: i.line_total,
-            }).collect();
+            let item_responses = items
+                .into_iter()
+                .map(|i| SaleItemResponse {
+                    id: i.id,
+                    product_id: i.product_id,
+                    product_name: i.product_name,
+                    product_barcode: i.product_barcode,
+                    quantity: i.quantity,
+                    unit_price: i.unit_price,
+                    tax_rate: i.tax_rate,
+                    discount: i.discount,
+                    line_total: i.line_total,
+                })
+                .collect();
 
             data.push(SaleResponse {
                 id: sale.id,
@@ -713,10 +840,14 @@ impl GescomService {
         caller_tenant_id: &str,
         payload: CreatePurchasePayload,
     ) -> Result<PurchaseResponse, ApiError> {
-        payload.validate().map_err(|e| ApiError::BadRequest(e.to_string()))?;
+        payload
+            .validate()
+            .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
         if payload.items.is_empty() {
-            return Err(ApiError::BadRequest("Un achat doit contenir au moins une ligne d'article.".to_string()));
+            return Err(ApiError::BadRequest(
+                "Un achat doit contenir au moins une ligne d'article.".to_string(),
+            ));
         }
 
         let txn = db.begin().await.map_err(|e| ApiError::Database(e))?;
@@ -728,13 +859,22 @@ impl GescomService {
         for item in &payload.items {
             let prod = ProductRepository::find_by_id(&txn, &item.product_id, caller_tenant_id)
                 .await?
-                .ok_or_else(|| ApiError::BadRequest(format!("Produit spécifié introuvable : {}", item.product_id)))?;
+                .ok_or_else(|| {
+                    ApiError::BadRequest(format!(
+                        "Produit spécifié introuvable : {}",
+                        item.product_id
+                    ))
+                })?;
 
             if item.quantity <= 0.0 {
-                return Err(ApiError::BadRequest("La quantité doit être strictement positive.".to_string()));
+                return Err(ApiError::BadRequest(
+                    "La quantité doit être strictement positive.".to_string(),
+                ));
             }
             if item.unit_cost < 0.0 {
-                return Err(ApiError::BadRequest("Le coût unitaire doit être positif.".to_string()));
+                return Err(ApiError::BadRequest(
+                    "Le coût unitaire doit être positif.".to_string(),
+                ));
             }
 
             let line_total = item.quantity * item.unit_cost;
@@ -756,7 +896,13 @@ impl GescomService {
             purchase_items_to_insert.push((active_item, prod));
 
             // Adjust inventory (Increment Stock)
-            let stock = match StockRepository::find_stock_item_by_product_id(&txn, &item.product_id, caller_tenant_id).await? {
+            let stock = match StockRepository::find_stock_item_by_product_id(
+                &txn,
+                &item.product_id,
+                caller_tenant_id,
+            )
+            .await?
+            {
                 Some(s) => s,
                 None => {
                     let id = uuid::Uuid::new_v4().to_string();
@@ -771,24 +917,31 @@ impl GescomService {
                         None,
                         None,
                         None,
-                    ).await?
+                    )
+                    .await?
                 }
             };
 
             let qty_before = stock.quantity;
             let qty_after = qty_before + item.quantity;
 
+            let expiry_date = item
+                .expiry_date
+                .as_ref()
+                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok());
+
             StockRepository::update_stock_item(
                 &txn,
                 &stock.id,
                 caller_tenant_id,
-                qty_after,
-                stock.quantity_reserved,
-                stock.low_stock_threshold,
-                None, // Leave unit location unchanged unless requested
+                Some(qty_after),
+                Some(stock.quantity_reserved),
+                Some(stock.low_stock_threshold),
+                None,
                 Some(item.batch_number.clone()),
-                Some(item.expiry_date.clone()),
-            ).await?;
+                Some(expiry_date),
+            )
+            .await?;
 
             // Create movement
             let movement_id = uuid::Uuid::new_v4().to_string();
@@ -804,10 +957,11 @@ impl GescomService {
                 qty_after,
                 Some(purchase_id.clone()),
                 Some(format!("Approvisionnement lié #{}", purchase_id)),
-            ).await?;
+            )
+            .await?;
         }
 
-        let purchased_at = chrono::Utc::now().to_rfc3339();
+        let purchased_at: chrono::DateTime<chrono::FixedOffset> = chrono::Utc::now().into();
 
         let active_purchase = purchases::ActiveModel {
             id: Set(purchase_id.clone()),
@@ -820,7 +974,7 @@ impl GescomService {
             status: Set("received".to_string()),
             notes: Set(payload.notes),
             purchased_at: Set(purchased_at),
-            created_at: Set(chrono::Utc::now().to_rfc3339()),
+            created_at: Set(chrono::Utc::now().into()),
         };
 
         let purchase = GescomRepository::create_purchase(&txn, active_purchase).await?;
@@ -868,7 +1022,14 @@ impl GescomService {
             .await?
             .ok_or_else(|| ApiError::NotFound("Achat introuvable".to_string()))?;
 
-        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &purchase.tenant_id, caller_user_id, "read").await?;
+        crate::utils::auth::require_tenant_access(
+            db,
+            caller_tenant_id,
+            &purchase.tenant_id,
+            caller_user_id,
+            "read",
+        )
+        .await?;
 
         let items = GescomRepository::find_purchase_items(db, &purchase.id).await?;
         let mut item_responses = Vec::new();
@@ -914,7 +1075,14 @@ impl GescomService {
         params: crate::utils::pagination::PaginationParams,
     ) -> Result<crate::utils::pagination::PaginatedResponse<PurchaseResponse>, ApiError> {
         let final_tenant_id = if let Some(ref t_id) = params.tenant_id {
-            crate::utils::auth::require_tenant_access(db, caller_tenant_id, t_id, caller_user_id, "read").await?;
+            crate::utils::auth::require_tenant_access(
+                db,
+                caller_tenant_id,
+                t_id,
+                caller_user_id,
+                "read",
+            )
+            .await?;
             t_id.clone()
         } else {
             caller_tenant_id.to_string()
@@ -926,7 +1094,8 @@ impl GescomService {
             supplier_name,
             status,
             params,
-        ).await?;
+        )
+        .await?;
 
         let mut data = Vec::with_capacity(paginated.data.len());
         for p in paginated.data {
@@ -984,21 +1153,38 @@ impl GescomService {
             .await?
             .ok_or_else(|| ApiError::NotFound("Achat introuvable".to_string()))?;
 
-        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &purchase.tenant_id, caller_user_id, "update").await?;
+        crate::utils::auth::require_tenant_access(
+            db,
+            caller_tenant_id,
+            &purchase.tenant_id,
+            caller_user_id,
+            "update",
+        )
+        .await?;
 
         if purchase.status == "cancelled" {
-            return Err(ApiError::BadRequest("Cet achat est déjà annulé.".to_string()));
+            return Err(ApiError::BadRequest(
+                "Cet achat est déjà annulé.".to_string(),
+            ));
         }
 
         let txn = db.begin().await.map_err(|e| ApiError::Database(e))?;
 
         // 1. Update purchase status
-        let updated = GescomRepository::update_purchase_status(&txn, id, caller_tenant_id, "cancelled").await?;
+        let updated =
+            GescomRepository::update_purchase_status(&txn, id, caller_tenant_id, "cancelled")
+                .await?;
 
         // 2. Decrement stock
         let items = GescomRepository::find_purchase_items(&txn, id).await?;
         for item in &items {
-            let stock = match StockRepository::find_stock_item_by_product_id(&txn, &item.product_id, caller_tenant_id).await? {
+            let stock = match StockRepository::find_stock_item_by_product_id(
+                &txn,
+                &item.product_id,
+                caller_tenant_id,
+            )
+            .await?
+            {
                 Some(s) => s,
                 None => {
                     let stock_id = uuid::Uuid::new_v4().to_string();
@@ -1013,7 +1199,8 @@ impl GescomService {
                         None,
                         None,
                         None,
-                    ).await?
+                    )
+                    .await?
                 }
             };
 
@@ -1021,20 +1208,23 @@ impl GescomService {
             let qty_after = qty_before - item.quantity;
 
             if qty_after < 0.0 {
-                return Err(ApiError::BadRequest("Impossible d'annuler cet achat car le stock deviendrait négatif.".to_string()));
+                return Err(ApiError::BadRequest(
+                    "Impossible d'annuler cet achat car le stock deviendrait négatif.".to_string(),
+                ));
             }
 
             StockRepository::update_stock_item(
                 &txn,
                 &stock.id,
                 caller_tenant_id,
-                qty_after,
-                stock.quantity_reserved,
-                stock.low_stock_threshold,
+                Some(qty_after),
+                Some(stock.quantity_reserved),
+                Some(stock.low_stock_threshold),
                 None,
                 None,
                 None,
-            ).await?;
+            )
+            .await?;
 
             // Create movement
             let movement_id = uuid::Uuid::new_v4().to_string();
@@ -1049,8 +1239,12 @@ impl GescomService {
                 -item.quantity,
                 qty_after,
                 Some(id.to_string()),
-                Some(format!("Annulation de l'approvisionnement #{}", purchase.id)),
-            ).await?;
+                Some(format!(
+                    "Annulation de l'approvisionnement #{}",
+                    purchase.id
+                )),
+            )
+            .await?;
         }
 
         txn.commit().await.map_err(|e| ApiError::Database(e))?;
@@ -1100,7 +1294,14 @@ impl GescomService {
         params: crate::utils::pagination::PaginationParams,
     ) -> Result<crate::utils::pagination::PaginatedResponse<AlertResponse>, ApiError> {
         let final_tenant_id = if let Some(ref t_id) = params.tenant_id {
-            crate::utils::auth::require_tenant_access(db, caller_tenant_id, t_id, caller_user_id, "read").await?;
+            crate::utils::auth::require_tenant_access(
+                db,
+                caller_tenant_id,
+                t_id,
+                caller_user_id,
+                "read",
+            )
+            .await?;
             t_id.clone()
         } else {
             caller_tenant_id.to_string()
@@ -1112,12 +1313,15 @@ impl GescomService {
             is_read,
             alert_type,
             params,
-        ).await?;
+        )
+        .await?;
 
         let mut data = Vec::with_capacity(paginated.data.len());
         for alert in paginated.data {
             let prod_name = if let Some(ref pid) = alert.product_id {
-                ProductRepository::find_by_id(db, pid, &final_tenant_id).await?.map(|p| p.name)
+                ProductRepository::find_by_id(db, pid, &final_tenant_id)
+                    .await?
+                    .map(|p| p.name)
             } else {
                 None
             };
@@ -1156,12 +1360,21 @@ impl GescomService {
             .await?
             .ok_or_else(|| ApiError::NotFound("Alerte introuvable".to_string()))?;
 
-        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &alert.tenant_id, caller_user_id, "update").await?;
+        crate::utils::auth::require_tenant_access(
+            db,
+            caller_tenant_id,
+            &alert.tenant_id,
+            caller_user_id,
+            "update",
+        )
+        .await?;
 
         let updated = GescomRepository::mark_alert_read(db, id, caller_tenant_id).await?;
 
         let prod_name = if let Some(ref pid) = updated.product_id {
-            ProductRepository::find_by_id(db, pid, caller_tenant_id).await?.map(|p| p.name)
+            ProductRepository::find_by_id(db, pid, caller_tenant_id)
+                .await?
+                .map(|p| p.name)
         } else {
             None
         };
@@ -1199,7 +1412,9 @@ impl GescomService {
         caller_tenant_id: &str,
         payload: CreateSyncLogPayload,
     ) -> Result<SyncLogResponse, ApiError> {
-        payload.validate().map_err(|e| ApiError::BadRequest(e.to_string()))?;
+        payload
+            .validate()
+            .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
         let inserted = GescomRepository::create_sync_log(
             db,
@@ -1210,7 +1425,8 @@ impl GescomService {
             payload.records_pushed,
             payload.records_pulled,
             payload.error_message,
-        ).await?;
+        )
+        .await?;
 
         Ok(SyncLogResponse {
             id: inserted.id,
@@ -1234,31 +1450,39 @@ impl GescomService {
         params: crate::utils::pagination::PaginationParams,
     ) -> Result<crate::utils::pagination::PaginatedResponse<SyncLogResponse>, ApiError> {
         let final_tenant_id = if let Some(ref t_id) = params.tenant_id {
-            crate::utils::auth::require_tenant_access(db, caller_tenant_id, t_id, caller_user_id, "read").await?;
+            crate::utils::auth::require_tenant_access(
+                db,
+                caller_tenant_id,
+                t_id,
+                caller_user_id,
+                "read",
+            )
+            .await?;
             t_id.clone()
         } else {
             caller_tenant_id.to_string()
         };
 
-        let paginated = GescomRepository::find_sync_logs_paginated(
-            db,
-            &final_tenant_id,
-            device_id,
-            params,
-        ).await?;
+        let paginated =
+            GescomRepository::find_sync_logs_paginated(db, &final_tenant_id, device_id, params)
+                .await?;
 
-        let data = paginated.data.into_iter().map(|log| SyncLogResponse {
-            id: log.id,
-            tenant_id: log.tenant_id,
-            device_id: log.device_id,
-            sync_type: log.sync_type,
-            status: log.status,
-            records_pushed: log.records_pushed,
-            records_pulled: log.records_pulled,
-            error_message: log.error_message,
-            started_at: log.started_at,
-            finished_at: log.finished_at,
-        }).collect();
+        let data = paginated
+            .data
+            .into_iter()
+            .map(|log| SyncLogResponse {
+                id: log.id,
+                tenant_id: log.tenant_id,
+                device_id: log.device_id,
+                sync_type: log.sync_type,
+                status: log.status,
+                records_pushed: log.records_pushed,
+                records_pulled: log.records_pulled,
+                error_message: log.error_message,
+                started_at: log.started_at,
+                finished_at: log.finished_at,
+            })
+            .collect();
 
         Ok(crate::utils::pagination::PaginatedResponse {
             data,

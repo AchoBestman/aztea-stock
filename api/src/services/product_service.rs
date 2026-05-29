@@ -1,11 +1,13 @@
-use sea_orm::{DatabaseConnection, EntityTrait, ColumnTrait, QueryFilter};
-use validator::Validate;
 use crate::{
+    dtos::product_dto::{CreateProductPayload, ProductResponse, UpdateProductPayload},
     errors::ApiError,
-    repositories::{product_repository::ProductRepository, category_repository::CategoryRepository},
-    dtos::product_dto::{CreateProductPayload, UpdateProductPayload, ProductResponse},
     models::product,
+    repositories::{
+        category_repository::CategoryRepository, product_repository::ProductRepository,
+    },
 };
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
+use validator::Validate;
 
 pub struct ProductService;
 
@@ -17,26 +19,46 @@ impl ProductService {
         target_tenant_id: Option<String>,
         payload: CreateProductPayload,
     ) -> Result<ProductResponse, ApiError> {
-        payload.validate().map_err(|e| ApiError::BadRequest(e.to_string()))?;
+        payload
+            .validate()
+            .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
         let final_tenant_id = if let Some(t_id) = target_tenant_id {
-            crate::utils::auth::require_tenant_access(db, caller_tenant_id, &t_id, caller_user_id, "create").await?;
+            crate::utils::auth::require_tenant_access(
+                db,
+                caller_tenant_id,
+                &t_id,
+                caller_user_id,
+                "create",
+            )
+            .await?;
             t_id
         } else {
             caller_tenant_id.to_string()
         };
 
+        // Name uniqueness check
+        if let Some(_) =
+            ProductRepository::find_by_name(db, &payload.name, &final_tenant_id).await?
+        {
+            return Err(ApiError::BadRequest(
+                "Un produit avec ce nom existe déjà pour ce tenant.".to_string(),
+            ));
+        }
+
         // If category_id is provided, verify it exists under this tenant
         if let Some(ref cid) = payload.category_id {
             let _cat = CategoryRepository::find_by_id(db, cid, &final_tenant_id)
                 .await?
-                .ok_or_else(|| ApiError::BadRequest("Catégorie spécifiée introuvable.".to_string()))?;
+                .ok_or_else(|| {
+                    ApiError::BadRequest("Catégorie spécifiée introuvable.".to_string())
+                })?;
         }
 
         // If barcode is provided, check uniqueness within the tenant
         if let Some(ref bc) = payload.barcode {
             if !bc.trim().is_empty() {
-                use sea_orm::{EntityTrait, QueryFilter, ColumnTrait};
+                use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
                 let existing = product::Entity::find()
                     .filter(product::Column::TenantId.eq(&final_tenant_id))
                     .filter(product::Column::Barcode.eq(bc))
@@ -45,7 +67,9 @@ impl ProductService {
                     .await
                     .map_err(|e| ApiError::Database(e))?;
                 if existing.is_some() {
-                    return Err(ApiError::BadRequest("Un produit avec ce code-barres existe déjà pour ce tenant.".to_string()));
+                    return Err(ApiError::BadRequest(
+                        "Un produit avec ce code-barres existe déjà pour ce tenant.".to_string(),
+                    ));
                 }
             }
         }
@@ -74,7 +98,8 @@ impl ProductService {
             payload.image_url,
             is_active,
             requires_prescription,
-        ).await?;
+        )
+        .await?;
 
         Self::map_to_response(db, created).await
     }
@@ -94,7 +119,14 @@ impl ProductService {
             .ok_or_else(|| ApiError::NotFound("Produit introuvable".to_string()))?;
 
         // Access guard
-        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &model.tenant_id, caller_user_id, "read").await?;
+        crate::utils::auth::require_tenant_access(
+            db,
+            caller_tenant_id,
+            &model.tenant_id,
+            caller_user_id,
+            "read",
+        )
+        .await?;
 
         Self::map_to_response(db, model).await
     }
@@ -109,7 +141,14 @@ impl ProductService {
         params: crate::utils::pagination::PaginationParams,
     ) -> Result<crate::utils::pagination::PaginatedResponse<ProductResponse>, ApiError> {
         let final_tenant_id = if let Some(t_id) = target_tenant_id {
-            crate::utils::auth::require_tenant_access(db, caller_tenant_id, &t_id, caller_user_id, "read").await?;
+            crate::utils::auth::require_tenant_access(
+                db,
+                caller_tenant_id,
+                &t_id,
+                caller_user_id,
+                "read",
+            )
+            .await?;
             t_id
         } else {
             caller_tenant_id.to_string()
@@ -121,7 +160,8 @@ impl ProductService {
             category_id,
             is_active,
             params,
-        ).await?;
+        )
+        .await?;
 
         let data = Self::map_to_response_list(db, paginated_models.data).await?;
 
@@ -141,7 +181,9 @@ impl ProductService {
         caller_tenant_id: &str,
         payload: UpdateProductPayload,
     ) -> Result<ProductResponse, ApiError> {
-        payload.validate().map_err(|e| ApiError::BadRequest(e.to_string()))?;
+        payload
+            .validate()
+            .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
         let model = product::Entity::find()
             .filter(product::Column::Id.eq(id))
@@ -152,19 +194,28 @@ impl ProductService {
             .ok_or_else(|| ApiError::NotFound("Produit introuvable".to_string()))?;
 
         // Guard
-        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &model.tenant_id, caller_user_id, "update").await?;
+        crate::utils::auth::require_tenant_access(
+            db,
+            caller_tenant_id,
+            &model.tenant_id,
+            caller_user_id,
+            "update",
+        )
+        .await?;
 
         // Verify category
         if let Some(Some(ref cid)) = payload.category_id {
             let _cat = CategoryRepository::find_by_id(db, cid, &model.tenant_id)
                 .await?
-                .ok_or_else(|| ApiError::BadRequest("Catégorie spécifiée introuvable.".to_string()))?;
+                .ok_or_else(|| {
+                    ApiError::BadRequest("Catégorie spécifiée introuvable.".to_string())
+                })?;
         }
 
         // Verify barcode uniqueness if changed
         if let Some(Some(ref bc)) = payload.barcode {
             if !bc.trim().is_empty() && Some(bc.clone()) != model.barcode {
-                use sea_orm::{EntityTrait, QueryFilter, ColumnTrait};
+                use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
                 let existing = product::Entity::find()
                     .filter(product::Column::TenantId.eq(&model.tenant_id))
                     .filter(product::Column::Barcode.eq(bc))
@@ -173,7 +224,20 @@ impl ProductService {
                     .await
                     .map_err(|e| ApiError::Database(e))?;
                 if existing.is_some() {
-                    return Err(ApiError::BadRequest("Un produit avec ce code-barres existe déjà.".to_string()));
+                    return Err(ApiError::BadRequest(
+                        "Un produit avec ce code-barres existe déjà.".to_string(),
+                    ));
+                }
+            }
+        }
+
+        if let Some(ref name) = payload.name {
+            if name != &model.name {
+                if let Some(_) = ProductRepository::find_by_name(db, name, &model.tenant_id).await?
+                {
+                    return Err(ApiError::BadRequest(
+                        "Un produit avec ce nom existe déjà pour ce tenant.".to_string(),
+                    ));
                 }
             }
         }
@@ -184,7 +248,9 @@ impl ProductService {
         let final_selling_price = payload.selling_price.unwrap_or(model.selling_price);
         let final_tax_rate = payload.tax_rate.unwrap_or(model.tax_rate);
         let final_is_active = payload.is_active.unwrap_or(model.is_active);
-        let final_requires_prescription = payload.requires_prescription.unwrap_or(model.requires_prescription);
+        let final_requires_prescription = payload
+            .requires_prescription
+            .unwrap_or(model.requires_prescription);
 
         let updated = ProductRepository::update(
             db,
@@ -202,7 +268,8 @@ impl ProductService {
             payload.image_url,
             final_is_active,
             final_requires_prescription,
-        ).await?;
+        )
+        .await?;
 
         Self::map_to_response(db, updated).await
     }
@@ -222,7 +289,14 @@ impl ProductService {
             .ok_or_else(|| ApiError::NotFound("Produit introuvable".to_string()))?;
 
         // Guard
-        crate::utils::auth::require_tenant_access(db, caller_tenant_id, &model.tenant_id, caller_user_id, "delete").await?;
+        crate::utils::auth::require_tenant_access(
+            db,
+            caller_tenant_id,
+            &model.tenant_id,
+            caller_user_id,
+            "delete",
+        )
+        .await?;
 
         let deleted = ProductRepository::soft_delete(db, id, &model.tenant_id).await?;
         Self::map_to_response(db, deleted).await

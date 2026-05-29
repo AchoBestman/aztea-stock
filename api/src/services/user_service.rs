@@ -312,8 +312,8 @@ impl UserService {
             is_active: m.is_active,
             two_factor_enabled: m.two_factor_enabled,
             roles,
-            created_at: m.created_at.to_rfc3339(),
-            updated_at: m.updated_at.to_rfc3339(),
+            created_at: m.created_at,
+            updated_at: m.updated_at,
         }
     }
 

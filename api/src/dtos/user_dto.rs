@@ -42,10 +42,8 @@ pub struct UserResponse {
     pub two_factor_enabled: bool,
     #[schema(example = json!(["Vendeur", "Gestionnaire"]))]
     pub roles: Vec<String>,
-    #[schema(example = "2026-05-20T10:00:00Z")]
-    pub created_at: String,
-    #[schema(example = "2026-05-20T10:00:00Z")]
-    pub updated_at: String,
+    pub created_at: chrono::DateTime<chrono::FixedOffset>,
+    pub updated_at: chrono::DateTime<chrono::FixedOffset>,
 }
 
 #[derive(Serialize, ToSchema, Clone, Debug)]
@@ -66,7 +64,7 @@ pub struct UserProfileTenantResponse {
     pub address: Option<String>,
     pub business_type: String,
     pub logo_url: Option<String>,
-    pub created_at: String,
+    pub created_at: chrono::DateTime<chrono::FixedOffset>,
     pub is_active: Option<bool>,
 }
 
@@ -80,7 +78,7 @@ impl UserProfileTenantResponse {
             address: tenant.address.clone(),
             business_type: tenant.business_type.clone(),
             logo_url: tenant.logo_url.clone(),
-            created_at: tenant.created_at.to_rfc3339(),
+            created_at: tenant.created_at,
             is_active: tenant.is_active,
         }
     }

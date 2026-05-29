@@ -328,8 +328,8 @@ impl TenantService {
             two_factor_enabled: m.two_factor_enabled,
             sender_email: m.sender_email,
             sender_user_encrypted: m.sender_user,
-            created_at: m.created_at.to_rfc3339(),
-            updated_at: m.updated_at.to_rfc3339(),
+            created_at: m.created_at,
+            updated_at: m.updated_at,
         }
     }
 

@@ -13,8 +13,8 @@ pub struct Model {
     pub records_pushed: i32,
     pub records_pulled: i32,
     pub error_message: Option<String>,
-    pub started_at: String,
-    pub finished_at: Option<String>,
+    pub started_at: DateTimeWithTimeZone,
+    pub finished_at: Option<DateTimeWithTimeZone>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

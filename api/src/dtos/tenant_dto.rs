@@ -74,10 +74,8 @@ pub struct TenantResponse {
     pub sender_email: Option<String>,
     #[schema(example = "smtp_user_encrypted_hash")]
     pub sender_user_encrypted: Option<String>,
-    #[schema(example = "2026-05-20T10:00:00Z")]
-    pub created_at: String,
-    #[schema(example = "2026-05-20T10:00:00Z")]
-    pub updated_at: String,
+    pub created_at: chrono::DateTime<chrono::FixedOffset>,
+    pub updated_at: chrono::DateTime<chrono::FixedOffset>,
 }
 
 #[derive(Serialize, ToSchema, Clone, Debug)]

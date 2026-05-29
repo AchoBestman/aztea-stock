@@ -13,8 +13,8 @@ pub struct Model {
     pub low_stock_threshold: f64,
     pub unit_location: Option<String>,
     pub batch_number: Option<String>,
-    pub expiry_date: Option<String>,
-    pub updated_at: String,
+    pub expiry_date: Option<DateTimeWithTimeZone>,
+    pub updated_at: DateTimeWithTimeZone,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

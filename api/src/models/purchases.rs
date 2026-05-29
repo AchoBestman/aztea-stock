@@ -14,8 +14,8 @@ pub struct Model {
     pub total: f64,
     pub status: String,
     pub notes: Option<String>,
-    pub purchased_at: String,
-    pub created_at: String,
+    pub purchased_at: DateTimeWithTimeZone,
+    pub created_at: DateTimeWithTimeZone,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

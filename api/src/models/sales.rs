@@ -20,8 +20,8 @@ pub struct Model {
     pub payment_method: String,
     pub status: String,
     pub notes: Option<String>,
-    pub sold_at: String,
-    pub created_at: String,
+    pub sold_at: DateTimeWithTimeZone,
+    pub created_at: DateTimeWithTimeZone,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

@@ -1,7 +1,9 @@
-use sea_orm::{EntityTrait, QueryFilter, ColumnTrait, Set, ActiveModelTrait, QueryOrder, PaginatorTrait};
-use crate::models::{sales, sale_items, purchases, purchase_items, alerts, sync_log};
 use crate::errors::ApiError;
-use crate::utils::pagination::{PaginationParams, PaginatedResponse};
+use crate::models::{alerts, purchase_items, purchases, sale_items, sales, sync_log};
+use crate::utils::pagination::{PaginatedResponse, PaginationParams};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, Set,
+};
 
 pub struct GescomRepository;
 
@@ -12,14 +14,20 @@ impl GescomRepository {
         db: &impl sea_orm::ConnectionTrait,
         sale_model: sales::ActiveModel,
     ) -> Result<sales::Model, ApiError> {
-        sale_model.insert(db).await.map_err(|e| ApiError::Database(e))
+        sale_model
+            .insert(db)
+            .await
+            .map_err(|e| ApiError::Database(e))
     }
 
     pub async fn create_sale_item(
         db: &impl sea_orm::ConnectionTrait,
         item_model: sale_items::ActiveModel,
     ) -> Result<sale_items::Model, ApiError> {
-        item_model.insert(db).await.map_err(|e| ApiError::Database(e))
+        item_model
+            .insert(db)
+            .await
+            .map_err(|e| ApiError::Database(e))
     }
 
     pub async fn find_sale_by_id(
@@ -53,15 +61,14 @@ impl GescomRepository {
         status: Option<String>,
         params: PaginationParams,
     ) -> Result<PaginatedResponse<sales::Model>, ApiError> {
-        let mut query = sales::Entity::find()
-            .filter(sales::Column::TenantId.eq(tenant_id));
+        let mut query = sales::Entity::find().filter(sales::Column::TenantId.eq(tenant_id));
 
         if let Some(name) = customer_name {
             query = query.filter(
                 sea_orm::Condition::any()
                     .add(sales::Column::CustomerName.contains(&name))
                     .add(sales::Column::CustomerPhone.contains(&name))
-                    .add(sales::Column::ReceiptNumber.contains(&name))
+                    .add(sales::Column::ReceiptNumber.contains(&name)),
             );
         }
 
@@ -83,9 +90,18 @@ impl GescomRepository {
         query = query.order_by_desc(sales::Column::SoldAt);
 
         let paginator = query.paginate(db, per_page);
-        let total = paginator.num_items().await.map_err(|e| ApiError::Database(e))?;
-        let total_pages = paginator.num_pages().await.map_err(|e| ApiError::Database(e))?;
-        let models = paginator.fetch_page(page - 1).await.map_err(|e| ApiError::Database(e))?;
+        let total = paginator
+            .num_items()
+            .await
+            .map_err(|e| ApiError::Database(e))?;
+        let total_pages = paginator
+            .num_pages()
+            .await
+            .map_err(|e| ApiError::Database(e))?;
+        let models = paginator
+            .fetch_page(page - 1)
+            .await
+            .map_err(|e| ApiError::Database(e))?;
 
         Ok(PaginatedResponse {
             data: models,
@@ -108,7 +124,10 @@ impl GescomRepository {
 
         let mut active_model: sales::ActiveModel = sale.into();
         active_model.status = Set(new_status.to_string());
-        active_model.update(db).await.map_err(|e| ApiError::Database(e))
+        active_model
+            .update(db)
+            .await
+            .map_err(|e| ApiError::Database(e))
     }
 
     // --- Purchases ---
@@ -117,14 +136,20 @@ impl GescomRepository {
         db: &impl sea_orm::ConnectionTrait,
         purchase_model: purchases::ActiveModel,
     ) -> Result<purchases::Model, ApiError> {
-        purchase_model.insert(db).await.map_err(|e| ApiError::Database(e))
+        purchase_model
+            .insert(db)
+            .await
+            .map_err(|e| ApiError::Database(e))
     }
 
     pub async fn create_purchase_item(
         db: &impl sea_orm::ConnectionTrait,
         item_model: purchase_items::ActiveModel,
     ) -> Result<purchase_items::Model, ApiError> {
-        item_model.insert(db).await.map_err(|e| ApiError::Database(e))
+        item_model
+            .insert(db)
+            .await
+            .map_err(|e| ApiError::Database(e))
     }
 
     pub async fn find_purchase_by_id(
@@ -158,8 +183,7 @@ impl GescomRepository {
         status: Option<String>,
         params: PaginationParams,
     ) -> Result<PaginatedResponse<purchases::Model>, ApiError> {
-        let mut query = purchases::Entity::find()
-            .filter(purchases::Column::TenantId.eq(tenant_id));
+        let mut query = purchases::Entity::find().filter(purchases::Column::TenantId.eq(tenant_id));
 
         if let Some(name) = supplier_name {
             query = query.filter(purchases::Column::SupplierName.contains(&name));
@@ -183,9 +207,18 @@ impl GescomRepository {
         query = query.order_by_desc(purchases::Column::PurchasedAt);
 
         let paginator = query.paginate(db, per_page);
-        let total = paginator.num_items().await.map_err(|e| ApiError::Database(e))?;
-        let total_pages = paginator.num_pages().await.map_err(|e| ApiError::Database(e))?;
-        let models = paginator.fetch_page(page - 1).await.map_err(|e| ApiError::Database(e))?;
+        let total = paginator
+            .num_items()
+            .await
+            .map_err(|e| ApiError::Database(e))?;
+        let total_pages = paginator
+            .num_pages()
+            .await
+            .map_err(|e| ApiError::Database(e))?;
+        let models = paginator
+            .fetch_page(page - 1)
+            .await
+            .map_err(|e| ApiError::Database(e))?;
 
         Ok(PaginatedResponse {
             data: models,
@@ -208,7 +241,10 @@ impl GescomRepository {
 
         let mut active_model: purchases::ActiveModel = purchase.into();
         active_model.status = Set(new_status.to_string());
-        active_model.update(db).await.map_err(|e| ApiError::Database(e))
+        active_model
+            .update(db)
+            .await
+            .map_err(|e| ApiError::Database(e))
     }
 
     // --- Alerts ---
@@ -223,7 +259,7 @@ impl GescomRepository {
         current_qty: Option<f64>,
     ) -> Result<alerts::Model, ApiError> {
         let id = uuid::Uuid::new_v4().to_string();
-        let triggered_at = chrono::Utc::now().to_rfc3339();
+        let triggered_at: chrono::DateTime<chrono::FixedOffset> = chrono::Utc::now().into();
         let new_alert = alerts::ActiveModel {
             id: Set(id),
             tenant_id: Set(tenant_id.to_string()),
@@ -237,7 +273,10 @@ impl GescomRepository {
             triggered_at: Set(triggered_at),
         };
 
-        new_alert.insert(db).await.map_err(|e| ApiError::Database(e))
+        new_alert
+            .insert(db)
+            .await
+            .map_err(|e| ApiError::Database(e))
     }
 
     pub async fn find_alert_by_id(
@@ -260,8 +299,7 @@ impl GescomRepository {
         alert_type: Option<String>,
         params: PaginationParams,
     ) -> Result<PaginatedResponse<alerts::Model>, ApiError> {
-        let mut query = alerts::Entity::find()
-            .filter(alerts::Column::TenantId.eq(tenant_id));
+        let mut query = alerts::Entity::find().filter(alerts::Column::TenantId.eq(tenant_id));
 
         if let Some(read) = is_read {
             query = query.filter(alerts::Column::IsRead.eq(read));
@@ -277,9 +315,18 @@ impl GescomRepository {
         query = query.order_by_desc(alerts::Column::TriggeredAt);
 
         let paginator = query.paginate(db, per_page);
-        let total = paginator.num_items().await.map_err(|e| ApiError::Database(e))?;
-        let total_pages = paginator.num_pages().await.map_err(|e| ApiError::Database(e))?;
-        let models = paginator.fetch_page(page - 1).await.map_err(|e| ApiError::Database(e))?;
+        let total = paginator
+            .num_items()
+            .await
+            .map_err(|e| ApiError::Database(e))?;
+        let total_pages = paginator
+            .num_pages()
+            .await
+            .map_err(|e| ApiError::Database(e))?;
+        let models = paginator
+            .fetch_page(page - 1)
+            .await
+            .map_err(|e| ApiError::Database(e))?;
 
         Ok(PaginatedResponse {
             data: models,
@@ -301,7 +348,10 @@ impl GescomRepository {
 
         let mut active_model: alerts::ActiveModel = alert.into();
         active_model.is_read = Set(true);
-        active_model.update(db).await.map_err(|e| ApiError::Database(e))
+        active_model
+            .update(db)
+            .await
+            .map_err(|e| ApiError::Database(e))
     }
 
     pub async fn mark_all_alerts_read(
@@ -309,7 +359,10 @@ impl GescomRepository {
         tenant_id: &str,
     ) -> Result<u64, ApiError> {
         let update_result = alerts::Entity::update_many()
-            .col_expr(alerts::Column::IsRead, sea_orm::sea_query::Expr::value(true))
+            .col_expr(
+                alerts::Column::IsRead,
+                sea_orm::sea_query::Expr::value(true),
+            )
             .filter(alerts::Column::TenantId.eq(tenant_id))
             .filter(alerts::Column::IsRead.eq(false))
             .exec(db)
@@ -332,8 +385,8 @@ impl GescomRepository {
         error_message: Option<String>,
     ) -> Result<sync_log::Model, ApiError> {
         let id = uuid::Uuid::new_v4().to_string();
-        let started_at = chrono::Utc::now().to_rfc3339();
-        let finished_at = chrono::Utc::now().to_rfc3339();
+        let started_at: chrono::DateTime<chrono::FixedOffset> = chrono::Utc::now().into();
+        let finished_at: chrono::DateTime<chrono::FixedOffset> = chrono::Utc::now().into();
         let model = sync_log::ActiveModel {
             id: Set(id),
             tenant_id: Set(tenant_id.to_string()),
@@ -356,8 +409,7 @@ impl GescomRepository {
         device_id: Option<String>,
         params: PaginationParams,
     ) -> Result<PaginatedResponse<sync_log::Model>, ApiError> {
-        let mut query = sync_log::Entity::find()
-            .filter(sync_log::Column::TenantId.eq(tenant_id));
+        let mut query = sync_log::Entity::find().filter(sync_log::Column::TenantId.eq(tenant_id));
 
         if let Some(dev) = device_id {
             query = query.filter(sync_log::Column::DeviceId.eq(dev));
@@ -377,9 +429,18 @@ impl GescomRepository {
         query = query.order_by_desc(sync_log::Column::StartedAt);
 
         let paginator = query.paginate(db, per_page);
-        let total = paginator.num_items().await.map_err(|e| ApiError::Database(e))?;
-        let total_pages = paginator.num_pages().await.map_err(|e| ApiError::Database(e))?;
-        let models = paginator.fetch_page(page - 1).await.map_err(|e| ApiError::Database(e))?;
+        let total = paginator
+            .num_items()
+            .await
+            .map_err(|e| ApiError::Database(e))?;
+        let total_pages = paginator
+            .num_pages()
+            .await
+            .map_err(|e| ApiError::Database(e))?;
+        let models = paginator
+            .fetch_page(page - 1)
+            .await
+            .map_err(|e| ApiError::Database(e))?;
 
         Ok(PaginatedResponse {
             data: models,

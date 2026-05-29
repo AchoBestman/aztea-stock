@@ -1,6 +1,6 @@
-use sea_orm::{EntityTrait, QueryFilter, ColumnTrait, Set, ActiveModelTrait, QueryOrder};
-use crate::models::product;
 use crate::errors::ApiError;
+use crate::models::product;
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set};
 
 pub struct ProductRepository;
 
@@ -22,7 +22,7 @@ impl ProductRepository {
         is_active: bool,
         requires_prescription: bool,
     ) -> Result<product::Model, ApiError> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now: chrono::DateTime<chrono::FixedOffset> = chrono::Utc::now().into();
         let new_product = product::ActiveModel {
             id: Set(id.to_string()),
             tenant_id: Set(tenant_id.to_string()),
@@ -43,7 +43,10 @@ impl ProductRepository {
             deleted_at: Set(None),
         };
 
-        new_product.insert(db).await.map_err(|e| ApiError::Database(e))
+        new_product
+            .insert(db)
+            .await
+            .map_err(|e| ApiError::Database(e))
     }
 
     pub async fn find_by_id(
@@ -53,6 +56,20 @@ impl ProductRepository {
     ) -> Result<Option<product::Model>, ApiError> {
         product::Entity::find()
             .filter(product::Column::Id.eq(id))
+            .filter(product::Column::TenantId.eq(tenant_id))
+            .filter(product::Column::DeletedAt.is_null())
+            .one(db)
+            .await
+            .map_err(|e| ApiError::Database(e))
+    }
+
+    pub async fn find_by_name(
+        db: &impl sea_orm::ConnectionTrait,
+        name: &str,
+        tenant_id: &str,
+    ) -> Result<Option<product::Model>, ApiError> {
+        product::Entity::find()
+            .filter(product::Column::Name.eq(name))
             .filter(product::Column::TenantId.eq(tenant_id))
             .filter(product::Column::DeletedAt.is_null())
             .one(db)
@@ -85,7 +102,7 @@ impl ProductRepository {
                     .add(product::Column::Name.contains(&search))
                     .add(product::Column::Barcode.contains(&search))
                     .add(product::Column::Description.contains(&search))
-                    .add(product::Column::Brand.contains(&search))
+                    .add(product::Column::Brand.contains(&search)),
             );
         }
 
@@ -108,10 +125,19 @@ impl ProductRepository {
 
         use sea_orm::PaginatorTrait;
         let paginator = query.paginate(db, per_page);
-        let total = paginator.num_items().await.map_err(|e| ApiError::Database(e))?;
-        let total_pages = paginator.num_pages().await.map_err(|e| ApiError::Database(e))?;
+        let total = paginator
+            .num_items()
+            .await
+            .map_err(|e| ApiError::Database(e))?;
+        let total_pages = paginator
+            .num_pages()
+            .await
+            .map_err(|e| ApiError::Database(e))?;
 
-        let models = paginator.fetch_page(page - 1).await.map_err(|e| ApiError::Database(e))?;
+        let models = paginator
+            .fetch_page(page - 1)
+            .await
+            .map_err(|e| ApiError::Database(e))?;
 
         Ok(crate::utils::pagination::PaginatedResponse {
             data: models,
@@ -144,7 +170,7 @@ impl ProductRepository {
             .ok_or_else(|| ApiError::NotFound("Produit introuvable".to_string()))?;
 
         let mut active_model: product::ActiveModel = model.into();
-        
+
         if let Some(cid) = category_id {
             active_model.category_id = Set(cid);
         }
@@ -167,9 +193,12 @@ impl ProductRepository {
         }
         active_model.is_active = Set(is_active);
         active_model.requires_prescription = Set(requires_prescription);
-        active_model.updated_at = Set(chrono::Utc::now().to_rfc3339());
+        active_model.updated_at = Set(chrono::Utc::now().into());
 
-        active_model.update(db).await.map_err(|e| ApiError::Database(e))
+        active_model
+            .update(db)
+            .await
+            .map_err(|e| ApiError::Database(e))
     }
 
     pub async fn soft_delete(
@@ -182,8 +211,11 @@ impl ProductRepository {
             .ok_or_else(|| ApiError::NotFound("Produit introuvable".to_string()))?;
 
         let mut active_model: product::ActiveModel = model.into();
-        active_model.deleted_at = Set(Some(chrono::Utc::now().to_rfc3339()));
+        active_model.deleted_at = Set(Some(chrono::Utc::now().into()));
 
-        active_model.update(db).await.map_err(|e| ApiError::Database(e))
+        active_model
+            .update(db)
+            .await
+            .map_err(|e| ApiError::Database(e))
     }
 }

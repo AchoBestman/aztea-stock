@@ -352,9 +352,13 @@ async function request<T>(
       window.dispatchEvent(new Event('auth-logout'));
     }
     const errorData = await response.json().catch(() => ({}));
+    const errPayload = (errorData as { error?: { message?: string } | string }).error;
     const message =
+      (typeof errPayload === "object" && errPayload?.message) ||
+      (typeof errPayload === "string" ? errPayload : undefined) ||
       (errorData as { message?: string }).message ||
       `API Error: ${response.statusText}`;
+
     throw new ApiError(message, response.status);
   }
 
@@ -369,7 +373,7 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ email, password }),
       }),
-    
+
     getProfile: () => request<AuthProfileResponse>('/auth/profile'),
 
     forgotPassword: (email: string) =>
@@ -406,14 +410,14 @@ export const api = {
             device_fingerprint = info.fingerprint;
             device_name = info.name;
           } catch (e: any) {
-             if (e && typeof e === 'string' && e.includes("connecter d'abord")) {
-                await ensureTauriDeviceKey(invoke);
-                const info = await invoke<{ name: string; fingerprint: string }>('get_device_info');
-                device_fingerprint = info.fingerprint;
-                device_name = info.name;
-             } else {
-               throw e;
-             }
+            if (e && typeof e === 'string' && e.includes("connecter d'abord")) {
+              await ensureTauriDeviceKey(invoke);
+              const info = await invoke<{ name: string; fingerprint: string }>('get_device_info');
+              device_fingerprint = info.fingerprint;
+              device_name = info.name;
+            } else {
+              throw e;
+            }
           }
         } else {
           device_fingerprint = 'AAAAAAAAAAAAAAAAAAAAAMKuRLPzNfGMEejIg4eDQgmz1w80ljy5t1GqcdX03uvIZXLMrxZMlH3hmJq5l0wRkQ==';
@@ -444,7 +448,7 @@ export const api = {
       if (search) params.append('search', search);
       return request<PaginatedCategories>(`/categories?${params.toString()}`);
     },
-    
+
     create: (name: string, description?: string, parentId?: string) =>
       request<Category>('/categories', {
         method: 'POST',
@@ -663,13 +667,13 @@ export const api = {
     },
     users: {
       list: () => request<AdminUser[]>('/admin/users'),
-      create: (payload: { name: string; email: string; role_id: string; tenant_id?: string }) => 
+      create: (payload: { name: string; email: string; role_id: string; tenant_id?: string }) =>
         request<AdminUser>('/admin/users', {
           method: 'POST',
           body: JSON.stringify(payload),
         }),
       delete: (id: string) =>
-        request<{success: boolean; message: string}>(`/admin/users/${id}`, {
+        request<{ success: boolean; message: string }>(`/admin/users/${id}`, {
           method: 'DELETE',
         }),
       setActive: (userId: string, isActive: boolean) =>
@@ -685,18 +689,18 @@ export const api = {
     },
     roles: {
       list: () => request<Role[]>('/admin/roles'),
-      create: (payload: { name: string; description: string; tenant_id?: string }) => 
+      create: (payload: { name: string; description: string; tenant_id?: string }) =>
         request<Role>('/admin/roles', {
           method: 'POST',
           body: JSON.stringify(payload),
         }),
       delete: (id: string) =>
-        request<{success: boolean; message: string}>(`/admin/roles/${id}`, {
+        request<{ success: boolean; message: string }>(`/admin/roles/${id}`, {
           method: 'DELETE',
         }),
       listPermissions: (roleId: string) => request<Permission[]>(`/admin/roles/${roleId}/permissions`),
-      assignPermissions: (roleId: string, permissionIds: string[]) => 
-        request<{success: boolean; message: string}>(`/admin/roles/${roleId}/permissions`, {
+      assignPermissions: (roleId: string, permissionIds: string[]) =>
+        request<{ success: boolean; message: string }>(`/admin/roles/${roleId}/permissions`, {
           method: 'POST',
           body: JSON.stringify({ permission_ids: permissionIds }),
         }),

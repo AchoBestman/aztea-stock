@@ -1,6 +1,8 @@
-use sea_orm::{DatabaseConnection, EntityTrait, QueryFilter, ColumnTrait, Set, ActiveModelTrait, QueryOrder};
-use crate::models::category;
 use crate::errors::ApiError;
+use crate::models::category;
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
+};
 
 pub struct CategoryRepository;
 
@@ -16,7 +18,7 @@ impl CategoryRepository {
         parent_id: Option<String>,
         is_active: bool,
     ) -> Result<category::Model, ApiError> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now: chrono::DateTime<chrono::FixedOffset> = chrono::Utc::now().into();
         let new_category = category::ActiveModel {
             id: Set(id.to_string()),
             tenant_id: Set(tenant_id.to_string()),
@@ -31,7 +33,10 @@ impl CategoryRepository {
             deleted_at: Set(None),
         };
 
-        new_category.insert(db).await.map_err(|e| ApiError::Database(e))
+        new_category
+            .insert(db)
+            .await
+            .map_err(|e| ApiError::Database(e))
     }
 
     pub async fn find_by_id(
@@ -41,6 +46,20 @@ impl CategoryRepository {
     ) -> Result<Option<category::Model>, ApiError> {
         category::Entity::find()
             .filter(category::Column::Id.eq(id))
+            .filter(category::Column::TenantId.eq(tenant_id))
+            .filter(category::Column::DeletedAt.is_null())
+            .one(db)
+            .await
+            .map_err(|e| ApiError::Database(e))
+    }
+
+    pub async fn find_by_name(
+        db: &DatabaseConnection,
+        name: &str,
+        tenant_id: &str,
+    ) -> Result<Option<category::Model>, ApiError> {
+        category::Entity::find()
+            .filter(category::Column::Name.eq(name))
             .filter(category::Column::TenantId.eq(tenant_id))
             .filter(category::Column::DeletedAt.is_null())
             .one(db)
@@ -99,7 +118,7 @@ impl CategoryRepository {
             query = query.filter(
                 sea_orm::Condition::any()
                     .add(category::Column::Name.contains(&search))
-                    .add(category::Column::Description.contains(&search))
+                    .add(category::Column::Description.contains(&search)),
             );
         }
 
@@ -121,10 +140,19 @@ impl CategoryRepository {
 
         use sea_orm::PaginatorTrait;
         let paginator = query.paginate(db, per_page);
-        let total = paginator.num_items().await.map_err(|e| ApiError::Database(e))?;
-        let total_pages = paginator.num_pages().await.map_err(|e| ApiError::Database(e))?;
+        let total = paginator
+            .num_items()
+            .await
+            .map_err(|e| ApiError::Database(e))?;
+        let total_pages = paginator
+            .num_pages()
+            .await
+            .map_err(|e| ApiError::Database(e))?;
 
-        let models = paginator.fetch_page(page - 1).await.map_err(|e| ApiError::Database(e))?;
+        let models = paginator
+            .fetch_page(page - 1)
+            .await
+            .map_err(|e| ApiError::Database(e))?;
 
         Ok(crate::utils::pagination::PaginatedResponse {
             data: models,
@@ -157,9 +185,12 @@ impl CategoryRepository {
         active_model.icon = Set(icon);
         active_model.parent_id = Set(parent_id);
         active_model.is_active = Set(is_active);
-        active_model.updated_at = Set(chrono::Utc::now().to_rfc3339());
+        active_model.updated_at = Set(chrono::Utc::now().into());
 
-        active_model.update(db).await.map_err(|e| ApiError::Database(e))
+        active_model
+            .update(db)
+            .await
+            .map_err(|e| ApiError::Database(e))
     }
 
     pub async fn soft_delete(
@@ -172,8 +203,11 @@ impl CategoryRepository {
             .ok_or_else(|| ApiError::NotFound("Catégorie introuvable".to_string()))?;
 
         let mut active_model: category::ActiveModel = model.into();
-        active_model.deleted_at = Set(Some(chrono::Utc::now().to_rfc3339()));
+        active_model.deleted_at = Set(Some(chrono::Utc::now().into()));
 
-        active_model.update(db).await.map_err(|e| ApiError::Database(e))
+        active_model
+            .update(db)
+            .await
+            .map_err(|e| ApiError::Database(e))
     }
 }

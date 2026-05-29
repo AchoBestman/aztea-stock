@@ -1,0 +1,29 @@
+-- Fix type mismatch between Rust f64 and MySQL DECIMAL
+-- Change quantity columns to DOUBLE to match SeaORM's f64 model
+ALTER TABLE stock_items
+MODIFY COLUMN quantity DOUBLE NOT NULL DEFAULT 0.0,
+    MODIFY COLUMN quantity_reserved DOUBLE NOT NULL DEFAULT 0.0,
+    MODIFY COLUMN low_stock_threshold DOUBLE NOT NULL DEFAULT 5.0,
+    MODIFY COLUMN unit_cost DOUBLE;
+ALTER TABLE sale_items
+MODIFY COLUMN quantity DOUBLE NOT NULL,
+    MODIFY COLUMN unit_price DOUBLE NOT NULL,
+    MODIFY COLUMN tax_rate DOUBLE NOT NULL,
+    MODIFY COLUMN discount DOUBLE NOT NULL,
+    MODIFY COLUMN line_total DOUBLE NOT NULL;
+ALTER TABLE sales
+MODIFY COLUMN subtotal DOUBLE NOT NULL,
+    MODIFY COLUMN tax_total DOUBLE NOT NULL,
+    MODIFY COLUMN discount_total DOUBLE NOT NULL,
+    MODIFY COLUMN total DOUBLE NOT NULL,
+    MODIFY COLUMN amount_paid DOUBLE NOT NULL,
+    MODIFY COLUMN change_given DOUBLE NOT NULL;
+ALTER TABLE purchase_items
+MODIFY COLUMN quantity DOUBLE NOT NULL,
+    MODIFY COLUMN unit_cost DOUBLE NOT NULL,
+    MODIFY COLUMN line_total DOUBLE NOT NULL;
+ALTER TABLE purchases
+MODIFY COLUMN total DOUBLE NOT NULL;
+ALTER TABLE alerts
+MODIFY COLUMN threshold DOUBLE,
+    MODIFY COLUMN current_qty DOUBLE;

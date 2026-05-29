@@ -1,12 +1,15 @@
-use sea_orm::{EntityTrait, QueryFilter, ColumnTrait, Set, ActiveModelTrait, QueryOrder, QuerySelect, RelationTrait};
-use crate::models::{stock_item, stock_movement, product};
 use crate::errors::ApiError;
+use crate::models::{product, stock_item, stock_movement};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+    RelationTrait, Set,
+};
 
 pub struct StockRepository;
 
 impl StockRepository {
     // --- Stock Items ---
-    
+
     pub async fn create_stock_item(
         db: &impl sea_orm::ConnectionTrait,
         id: &str,
@@ -17,9 +20,9 @@ impl StockRepository {
         low_stock_threshold: f64,
         unit_location: Option<String>,
         batch_number: Option<String>,
-        expiry_date: Option<String>,
+        expiry_date: Option<chrono::DateTime<chrono::FixedOffset>>,
     ) -> Result<stock_item::Model, ApiError> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now: chrono::DateTime<chrono::FixedOffset> = chrono::Utc::now().into();
         let new_item = stock_item::ActiveModel {
             id: Set(id.to_string()),
             tenant_id: Set(tenant_id.to_string()),
@@ -69,14 +72,14 @@ impl StockRepository {
         is_low_stock: Option<bool>,
         params: crate::utils::pagination::PaginationParams,
     ) -> Result<crate::utils::pagination::PaginatedResponse<stock_item::Model>, ApiError> {
-        let mut query = stock_item::Entity::find()
-            .filter(stock_item::Column::TenantId.eq(tenant_id));
+        let mut query =
+            stock_item::Entity::find().filter(stock_item::Column::TenantId.eq(tenant_id));
 
         // Join products for advanced filters
         if category_id.is_some() || params.search.is_some() {
             query = query.join(
                 sea_orm::JoinType::InnerJoin,
-                stock_item::Relation::Product.def()
+                stock_item::Relation::Product.def(),
             );
         }
 
@@ -89,15 +92,16 @@ impl StockRepository {
                 sea_orm::Condition::any()
                     .add(product::Column::Name.contains(&search))
                     .add(product::Column::Barcode.contains(&search))
-                    .add(stock_item::Column::BatchNumber.contains(&search))
+                    .add(stock_item::Column::BatchNumber.contains(&search)),
             );
         }
 
         if let Some(low) = is_low_stock {
             if low {
                 query = query.filter(
-                    sea_orm::sea_query::Expr::col(stock_item::Column::Quantity)
-                        .lte(sea_orm::sea_query::Expr::col(stock_item::Column::LowStockThreshold))
+                    sea_orm::sea_query::Expr::col(stock_item::Column::Quantity).lte(
+                        sea_orm::sea_query::Expr::col(stock_item::Column::LowStockThreshold),
+                    ),
                 );
             }
         }
@@ -120,10 +124,19 @@ impl StockRepository {
 
         use sea_orm::PaginatorTrait;
         let paginator = query.paginate(db, per_page);
-        let total = paginator.num_items().await.map_err(|e| ApiError::Database(e))?;
-        let total_pages = paginator.num_pages().await.map_err(|e| ApiError::Database(e))?;
+        let total = paginator
+            .num_items()
+            .await
+            .map_err(|e| ApiError::Database(e))?;
+        let total_pages = paginator
+            .num_pages()
+            .await
+            .map_err(|e| ApiError::Database(e))?;
 
-        let models = paginator.fetch_page(page - 1).await.map_err(|e| ApiError::Database(e))?;
+        let models = paginator
+            .fetch_page(page - 1)
+            .await
+            .map_err(|e| ApiError::Database(e))?;
 
         Ok(crate::utils::pagination::PaginatedResponse {
             data: models,
@@ -138,21 +151,27 @@ impl StockRepository {
         db: &impl sea_orm::ConnectionTrait,
         id: &str,
         tenant_id: &str,
-        quantity: f64,
-        quantity_reserved: f64,
-        low_stock_threshold: f64,
+        quantity: Option<f64>,
+        quantity_reserved: Option<f64>,
+        low_stock_threshold: Option<f64>,
         unit_location: Option<Option<String>>,
         batch_number: Option<Option<String>>,
-        expiry_date: Option<Option<String>>,
+        expiry_date: Option<Option<chrono::DateTime<chrono::FixedOffset>>>,
     ) -> Result<stock_item::Model, ApiError> {
         let model = Self::find_stock_item_by_id(db, id, tenant_id)
             .await?
             .ok_or_else(|| ApiError::NotFound("Article de stock introuvable".to_string()))?;
 
         let mut active_model: stock_item::ActiveModel = model.into();
-        active_model.quantity = Set(quantity);
-        active_model.quantity_reserved = Set(quantity_reserved);
-        active_model.low_stock_threshold = Set(low_stock_threshold);
+        if let Some(q) = quantity {
+            active_model.quantity = Set(q);
+        }
+        if let Some(qr) = quantity_reserved {
+            active_model.quantity_reserved = Set(qr);
+        }
+        if let Some(lst) = low_stock_threshold {
+            active_model.low_stock_threshold = Set(lst);
+        }
         if let Some(loc) = unit_location {
             active_model.unit_location = Set(loc);
         }
@@ -162,9 +181,12 @@ impl StockRepository {
         if let Some(exp) = expiry_date {
             active_model.expiry_date = Set(exp);
         }
-        active_model.updated_at = Set(chrono::Utc::now().to_rfc3339());
+        active_model.updated_at = Set(chrono::Utc::now().into());
 
-        active_model.update(db).await.map_err(|e| ApiError::Database(e))
+        active_model
+            .update(db)
+            .await
+            .map_err(|e| ApiError::Database(e))
     }
 
     pub async fn delete_stock_item(
@@ -177,7 +199,10 @@ impl StockRepository {
             .ok_or_else(|| ApiError::NotFound("Article de stock introuvable".to_string()))?;
 
         let active_model: stock_item::ActiveModel = model.into();
-        active_model.delete(db).await.map_err(|e| ApiError::Database(e))?;
+        active_model
+            .delete(db)
+            .await
+            .map_err(|e| ApiError::Database(e))?;
         Ok(())
     }
 
@@ -196,7 +221,7 @@ impl StockRepository {
         reference_id: Option<String>,
         note: Option<String>,
     ) -> Result<stock_movement::Model, ApiError> {
-        let occurred_at = chrono::Utc::now().to_rfc3339();
+        let occurred_at: chrono::DateTime<chrono::FixedOffset> = chrono::Utc::now().into();
         let new_movement = stock_movement::ActiveModel {
             id: Set(id.to_string()),
             tenant_id: Set(tenant_id.to_string()),
@@ -211,7 +236,10 @@ impl StockRepository {
             occurred_at: Set(occurred_at),
         };
 
-        new_movement.insert(db).await.map_err(|e| ApiError::Database(e))
+        new_movement
+            .insert(db)
+            .await
+            .map_err(|e| ApiError::Database(e))
     }
 
     pub async fn find_stock_movement_by_id(
@@ -234,8 +262,8 @@ impl StockRepository {
         movement_type: Option<String>,
         params: crate::utils::pagination::PaginationParams,
     ) -> Result<crate::utils::pagination::PaginatedResponse<stock_movement::Model>, ApiError> {
-        let mut query = stock_movement::Entity::find()
-            .filter(stock_movement::Column::TenantId.eq(tenant_id));
+        let mut query =
+            stock_movement::Entity::find().filter(stock_movement::Column::TenantId.eq(tenant_id));
 
         if let Some(pid) = product_id {
             query = query.filter(stock_movement::Column::ProductId.eq(pid));
@@ -261,10 +289,19 @@ impl StockRepository {
 
         use sea_orm::PaginatorTrait;
         let paginator = query.paginate(db, per_page);
-        let total = paginator.num_items().await.map_err(|e| ApiError::Database(e))?;
-        let total_pages = paginator.num_pages().await.map_err(|e| ApiError::Database(e))?;
+        let total = paginator
+            .num_items()
+            .await
+            .map_err(|e| ApiError::Database(e))?;
+        let total_pages = paginator
+            .num_pages()
+            .await
+            .map_err(|e| ApiError::Database(e))?;
 
-        let models = paginator.fetch_page(page - 1).await.map_err(|e| ApiError::Database(e))?;
+        let models = paginator
+            .fetch_page(page - 1)
+            .await
+            .map_err(|e| ApiError::Database(e))?;
 
         Ok(crate::utils::pagination::PaginatedResponse {
             data: models,

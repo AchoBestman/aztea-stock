@@ -15,7 +15,7 @@ pub struct Model {
     pub quantity_after: f64,
     pub reference_id: Option<String>,
     pub note: Option<String>,
-    pub occurred_at: String,
+    pub occurred_at: DateTimeWithTimeZone,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

@@ -48,10 +48,8 @@ pub struct CategoryResponse {
     pub parent_name: Option<String>,
     #[schema(example = true)]
     pub is_active: bool,
-    #[schema(example = "2026-05-20T10:00:00Z")]
-    pub created_at: String,
-    #[schema(example = "2026-05-20T10:00:00Z")]
-    pub updated_at: String,
+    pub created_at: chrono::DateTime<chrono::FixedOffset>,
+    pub updated_at: chrono::DateTime<chrono::FixedOffset>,
 }
 
 #[derive(Serialize, ToSchema, Clone, Debug)]

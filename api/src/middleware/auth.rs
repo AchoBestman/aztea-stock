@@ -1,18 +1,18 @@
+use crate::AppState;
 use axum::{
     extract::{Request, State},
     http::StatusCode,
     middleware::Next,
     response::Response,
 };
-use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use crate::AppState;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
-    pub sub: String,          // user_id
-    pub tenant_id: String,    // tenant_id
+    pub sub: String,       // user_id
+    pub tenant_id: String, // tenant_id
     pub role: String,
     pub exp: usize,
 }
@@ -24,8 +24,13 @@ pub async fn extract_tenant(
 ) -> Result<Response, StatusCode> {
     let path = req.uri().path();
     // Allow public endpoints to skip authentication
-    if (path.starts_with("/api/v1/auth/") && !path.starts_with("/api/v1/auth/profile"))
-        || path.starts_with("/api/v1/health") 
+    let is_public_auth = path.starts_with("/api/v1/auth/login")
+        || path.starts_with("/api/v1/auth/forgot-password")
+        || path.starts_with("/api/v1/auth/reset-password")
+        || path.starts_with("/api/v1/auth/verify-otp");
+
+    if is_public_auth
+        || path.starts_with("/api/v1/health")
         || path.starts_with("/api/v1/license/verify")
         || path.starts_with("/swagger-ui")
         || path.starts_with("/api-docs")
@@ -55,7 +60,7 @@ pub async fn extract_tenant(
             .one(db)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        
+
         if let Some(t) = tenant_model {
             if t.is_active == Some(false) {
                 return Err(StatusCode::UNAUTHORIZED);
